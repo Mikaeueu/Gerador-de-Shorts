@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Variáveis de ambiente / secrets
+.env
+.env.local
+
+# Dados gerados (vídeos, áudio, etc.)
+data/inputs/*
+data/outputs/*
+data/temp/*
+!data/inputs/.gitkeep
+!data/outputs/.gitkeep
+!data/temp/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Modelos baixados (Whisper guarda em ~/.cache, mas se cachear local)
+models/
+*.bin
+*.pt

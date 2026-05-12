@@ -1,0 +1,30 @@
+# ============================================================
+# Gerador de Shorts — Dependências
+# ============================================================
+# As dependências são adicionadas conforme cada etapa é implementada.
+# Comente/descomente conforme avança no roadmap.
+
+# ---- Etapa 1: Downloader ----
+yt-dlp>=2024.10.0
+
+# ---- Etapa 2: Transcrição ----
+faster-whisper>=1.0.3
+
+# ---- Etapa 3: Análise viral via LLM ----
+google-genai>=0.7.0      # SDK novo unificado do Google (substitui google-generativeai)
+python-dotenv>=1.0.0     # carrega .env
+pydantic>=2.9.0          # schema das respostas estruturadas
+
+# ---- Etapa 4: Reenquadramento ----
+# opencv-python>=4.10.0
+# mediapipe>=0.10.14
+# numpy>=1.26.0
+
+# ---- Etapa 5/6: Legendas e exportação ----
+# (FFmpeg é binário do sistema, não dependência Python)
+
+# ---- Etapa 7: API ----
+# fastapi>=0.115.0
+# uvicorn[standard]>=0.32.0
+# python-multipart>=0.0.12  # uploads
+# pydantic>=2.9.0
