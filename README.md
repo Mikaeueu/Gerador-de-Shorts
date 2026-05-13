@@ -33,7 +33,7 @@ O projeto é construído etapa por etapa, cada módulo testável de forma isolad
 - [x] **Etapa 2** — Transcrição com faster-whisper (timestamps por palavra)
 - [x] **Etapa 3** — Análise viral via Gemini (templates por nicho)
 - [x] **Etapa 4** — Reenquadramento vertical com tracking de rosto (MediaPipe + FFmpeg)
-- [ ] **Etapa 5** — Geração de legendas estilo karaokê
+- [x] **Etapa 5** — Legendas estilo Opus (palavra-por-palavra, ASS + FFmpeg)
 - [ ] **Etapa 6** — Exportação final (FFmpeg)
 - [ ] **Etapa 7** — API FastAPI envolvendo o pipeline
 - [ ] **Etapa 8** — Frontend simples (HTML → React no futuro)
@@ -157,7 +157,10 @@ python -m src.analyzer.cli "data/inputs/pregacao.mp4"
 # 4. Cortar verticalmente com face tracking
 python -m src.cropper.cli "data/temp/pregacao.viral.json" "data/inputs/pregacao.mp4"
 
-# Resultado: data/outputs/pregacao_clip_1.mp4, pregacao_clip_2.mp4, ...
+# 5. Queimar legendas estilo Opus (palavra-por-palavra)
+python -m src.captioner.cli "data/temp/pregacao.transcript.json" "data/temp/pregacao.viral.json"
+
+# Resultado final: data/outputs/pregacao_clip_N_captioned.mp4
 ```
 
 Todos os intermediários são **cacheados em `data/temp/`** — rodar de novo é instantâneo.
