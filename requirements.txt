@@ -16,9 +16,9 @@ python-dotenv>=1.0.0     # carrega .env
 pydantic>=2.9.0          # schema das respostas estruturadas
 
 # ---- Etapa 4: Reenquadramento ----
-# opencv-python>=4.10.0
-# mediapipe>=0.10.14
-# numpy>=1.26.0
+opencv-python>=4.10.0    # ler frames do vídeo pra detecção
+mediapipe>=0.10.14       # detecção de rosto leve, otimizada pra CPU
+numpy>=1.26.0            # arrays pra suavização da trajetória
 
 # ---- Etapa 5/6: Legendas e exportação ----
 # (FFmpeg é binário do sistema, não dependência Python)

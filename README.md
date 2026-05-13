@@ -32,7 +32,7 @@ O projeto é construído etapa por etapa, cada módulo testável de forma isolad
 - [x] **Etapa 1** — Downloader (YouTube + upload local)
 - [x] **Etapa 2** — Transcrição com faster-whisper (timestamps por palavra)
 - [x] **Etapa 3** — Análise viral via Gemini (templates por nicho)
-- [ ] **Etapa 4** — Reenquadramento vertical com tracking de rosto
+- [x] **Etapa 4** — Reenquadramento vertical com tracking de rosto (MediaPipe + FFmpeg)
 - [ ] **Etapa 5** — Geração de legendas estilo karaokê
 - [ ] **Etapa 6** — Exportação final (FFmpeg)
 - [ ] **Etapa 7** — API FastAPI envolvendo o pipeline
@@ -140,9 +140,9 @@ Vídeos curtos (< 15 min) processam em tempo razoável. Vídeos longos podem lev
 
 ## Status atual
 
-**Etapas 1, 2 e 3 concluídas.** Próxima: Etapa 4 (reenquadramento vertical com tracking de rosto).
+**Etapas 1, 2, 3 e 4 concluídas.** Próxima: Etapa 5 (legendas estilo karaokê).
 
-### Como usar o que já está pronto
+### Pipeline completo
 
 ```bash
 # 1. Baixar um vídeo
@@ -154,11 +154,23 @@ python -m src.transcriber.cli "data/inputs/pregacao.mp4" --model small --lang pt
 # 3. Detectar trechos virais (template padrão = pregação evangélica)
 python -m src.analyzer.cli "data/inputs/pregacao.mp4"
 
-# Mudando template ou limites:
-python -m src.analyzer.cli "data/inputs/podcast.mp4" --template generic --max-clips 8
+# 4. Cortar verticalmente com face tracking
+python -m src.cropper.cli "data/temp/pregacao.viral.json" "data/inputs/pregacao.mp4"
+
+# Resultado: data/outputs/pregacao_clip_1.mp4, pregacao_clip_2.mp4, ...
 ```
 
-Todos os intermediários (transcrição + análise) são **cacheados em `data/temp/`** — rodar de novo é instantâneo.
+Todos os intermediários são **cacheados em `data/temp/`** — rodar de novo é instantâneo.
+
+### Editar manualmente o crop
+
+Se o tracking automático errou em algum clip, edite `data/temp/<nome>_clip_N.crop.json` na mão e re-rode com `--use-cache-plan`:
+
+```bash
+python -m src.cropper.cli "data/temp/pregacao.viral.json" "data/inputs/pregacao.mp4" --use-cache-plan
+```
+
+Os keyframes têm `x_center` de 0.0 (esquerda) a 1.0 (direita), com 0.5 = centro.
 
 ### Templates do analyzer
 
