@@ -16,9 +16,13 @@ python-dotenv>=1.0.0     # carrega .env
 pydantic>=2.9.0          # schema das respostas estruturadas
 
 # ---- Etapa 4: Reenquadramento ----
-opencv-python>=4.10.0    # ler frames do vídeo pra detecção
-mediapipe>=0.10.14       # detecção de rosto leve, otimizada pra CPU
+opencv-python>=4.5.4     # detecção de rosto via YuNet (cv2.FaceDetectorYN)
+                         # + Haar Cascade fallback + leitura de frames
 numpy>=1.26.0            # arrays pra suavização da trajetória
+# Modelo YuNet (~340KB) é baixado automaticamente em data/models/
+# na primeira execução. Ver src/cropper/face_tracker.py.
+# MediaPipe foi removido — YuNet substitui com vantagens (mais preciso,
+# sem inferno de versões).
 
 # ---- Etapa 5/6: Legendas e exportação ----
 # (FFmpeg é binário do sistema, não dependência Python)

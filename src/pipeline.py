@@ -1,22 +1,15 @@
 """
 Etapa 6 - Pipeline orquestrador END-TO-END.
 
-O que esse modulo faz:
-    Roda TODO o pipeline com UM unico comando, encadeando as 6 etapas:
-        1. Downloader      (yt-dlp)
-        2. Transcriber     (faster-whisper)
-        2.5 Refiner        (Gemini revisa palavras, preserva timestamps)
-        3. Analyzer        (Gemini detecta clips virais)
-        4. Cropper         (MediaPipe/Haar + FFmpeg)
-        5. Captioner       (ASS + FFmpeg + fade out)
+Roda TODO o pipeline com UM unico comando, encadeando as 6 etapas:
+    1. Downloader   (yt-dlp)
+    2. Transcriber  (faster-whisper)
+    2.5 Refiner     (Gemini revisa palavras)
+    3. Analyzer     (Gemini detecta clips virais)
+    4. Cropper      (MediaPipe/Haar + FFmpeg)
+    5. Captioner    (ASS + FFmpeg + fade out + cleanup)
 
-    Cada etapa intermediaria salva seu resultado em data/temp/, entao
-    re-rodar o pipeline reusa caches automaticamente.
-
-Uso:
-    python -m src.pipeline "https://www.youtube.com/watch?v=..."
-    python -m src.pipeline "/caminho/para/video.mp4" --model small --lang pt
-    python -m src.pipeline "URL" --no-refine --fade-out 0
+Caches em data/temp/ sao reaproveitados em re-runs.
 """
 from __future__ import annotations
 
@@ -27,12 +20,6 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-# Tipo do callback de progresso. Recebe:
-#   stage:   nome da etapa ("download", "transcribe", "refine", etc.)
-#   message: texto humano do que esta acontecendo
-#   percent: 0-100, progresso geral aproximado
-ProgressCallback = Callable[[str, str, int], None]
-
 from src.analyzer import analyze
 from src.analyzer.prompts import TEMPLATES
 from src.captioner import caption_all_clips
@@ -41,6 +28,12 @@ from src.downloader import ingest
 from src.transcriber import refine_transcript, transcribe
 
 logger = logging.getLogger(__name__)
+
+# Tipo do callback de progresso. Recebe:
+#   stage:   nome da etapa ("download", "transcribe", "refine", etc.)
+#   message: texto humano do que esta acontecendo
+#   percent: 0-100, progresso geral aproximado
+ProgressCallback = Callable[[str, str, int], None]
 
 
 def _section(num: int, total: int, label: str) -> None:
@@ -69,24 +62,23 @@ def run_pipeline(
     on_progress: Optional[ProgressCallback] = None,
 ) -> list[Path]:
     """
-    Roda o pipeline completo: source (URL/arquivo) -> MP4s finais.
+    Roda o pipeline completo: source -> MP4s finais com legendas.
 
     Args:
-        source:           URL do YouTube OU caminho de arquivo local.
-        whisper_model:    Tamanho do modelo Whisper. Default: "base".
-        language:         Codigo ISO (ex: "pt"). None = auto-detect.
-        refine:           Se True, refina a transcricao via Gemini
-                          antes da analise. Default: True.
+        source:           URL ou caminho local.
+        whisper_model:    "base"/"small"/etc. Default: base.
+        language:         Codigo ISO ("pt", "en"). None = auto-detect.
+        refine:           Refinar transcricao via Gemini. Default True.
         refine_context:   Contexto pra orientar o refinamento.
         template:         Template do analyzer.
-        min_clip_seconds: Duracao minima dos clips. Default: 45.
-        max_clip_seconds: Duracao maxima. Default: 90.
-        max_clips:        Maximo de clips. Default: 5.
-        min_score:        Score minimo 0-10. Default: 7.0.
-        font_size:        Tamanho da fonte das legendas. Default: 90.
-        words_per_chunk:  Palavras por chunk de legenda. Default: 3.
-        fade_out_seconds: Duracao do fade out final. Default: 3.0.
-                          Use 0 pra desativar.
+        min/max_clip_seconds: Faixa de duracao dos clips.
+        max_clips:        Maximo de clips. Default 5.
+        min_score:        Score minimo. Default 7.0.
+        font_size:        Tamanho da fonte das legendas. Default 90.
+        words_per_chunk:  Palavras por chunk de legenda. Default 3.
+        fade_out_seconds: Duracao do fade out. Default 3.0.
+        on_progress:      Callback opcional pra reportar progresso
+                          (usado pela API com WebSocket).
 
     Returns:
         Lista de Paths dos MP4s finais.
@@ -95,7 +87,7 @@ def run_pipeline(
     started_at = time.time()
 
     def progress(stage: str, msg: str, percent: int) -> None:
-        """Reporta progresso pra callback (se houver) + imprime no terminal."""
+        """Reporta progresso pra callback (se houver)."""
         if on_progress:
             try:
                 on_progress(stage, msg, percent)
@@ -198,37 +190,37 @@ def run_pipeline(
 
 
 def main() -> int:
-    """Ponto de entrada do CLI do pipeline completo."""
+    """CLI do pipeline completo."""
     parser = argparse.ArgumentParser(
         description="Pipeline completo: URL/video -> Shorts verticais com legendas"
     )
     parser.add_argument("source", help="URL do YouTube OU caminho de video local")
     parser.add_argument("--model", default="base",
                         choices=["tiny", "base", "small", "medium", "large-v3"],
-                        help="Modelo Whisper (default: base; small e melhor pra pt)")
+                        help="Modelo Whisper (default: base)")
     parser.add_argument("--lang", default=None,
-                        help="Codigo ISO do idioma (ex: pt, en). Default: auto-detect")
+                        help="Codigo ISO do idioma. Default: auto-detect")
     parser.add_argument("--no-refine", action="store_true",
-                        help="Desativa o refinamento da transcricao via Gemini")
+                        help="Desativa refinamento da transcricao via Gemini")
     parser.add_argument("--refine-context", default="pregacao evangelica em portugues do Brasil",
                         help="Contexto pra refinamento")
     parser.add_argument("--fade-out", type=float, default=3.0,
-                        help="Duracao do fade out em segundos (default: 3.0; 0=desativa)")
+                        help="Fade out em segundos (default: 3.0; 0=desativa)")
     parser.add_argument("--template", default="evangelical_preaching",
                         choices=list(TEMPLATES),
-                        help="Template do analyzer (default: evangelical_preaching)")
+                        help="Template do analyzer")
     parser.add_argument("--min-seconds", type=float, default=45,
                         help="Duracao minima de clip (default: 45)")
     parser.add_argument("--max-seconds", type=float, default=90,
                         help="Duracao maxima de clip (default: 90)")
     parser.add_argument("--max-clips", type=int, default=5,
-                        help="Maximo de clips por video (default: 5)")
+                        help="Maximo de clips (default: 5)")
     parser.add_argument("--min-score", type=float, default=7.0,
                         help="Score minimo 0-10 (default: 7.0)")
     parser.add_argument("--font-size", type=int, default=90,
-                        help="Tamanho da fonte das legendas (default: 90)")
+                        help="Tamanho da fonte (default: 90)")
     parser.add_argument("--words", type=int, default=3,
-                        help="Palavras por chunk de legenda (default: 3)")
+                        help="Palavras por chunk (default: 3)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 

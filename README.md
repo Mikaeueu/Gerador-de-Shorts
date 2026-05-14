@@ -35,7 +35,7 @@ O projeto é construído etapa por etapa, cada módulo testável de forma isolad
 - [x] **Etapa 4** — Reenquadramento vertical com tracking de rosto (MediaPipe + FFmpeg)
 - [x] **Etapa 5** — Legendas estilo Opus (palavra-por-palavra, ASS + FFmpeg)
 - [x] **Etapa 6** — Pipeline orquestrador end-to-end (1 comando faz tudo)
-- [ ] **Etapa 7** — API FastAPI envolvendo o pipeline
+- [x] **Etapa 7** — API FastAPI com WebSocket pra progresso em tempo real
 - [ ] **Etapa 8** — Frontend simples (HTML → React no futuro)
 
 ## Estrutura do projeto
@@ -162,6 +162,32 @@ python -m src.captioner.cli "data/temp/pregacao.transcript.json" "data/temp/preg
 
 # Resultado final: data/outputs/pregacao_clip_N_captioned.mp4
 ```
+
+### API HTTP (Etapa 7)
+
+Pra usar o pipeline via HTTP/WebSocket (ideal pra frontend ou integração):
+
+```bash
+# Subir o servidor (default: porta 8000):
+python -m src.api.cli
+
+# Modo dev com auto-reload:
+python -m src.api.cli --reload
+
+# Acessar:
+#   http://127.0.0.1:8000/         - info da API
+#   http://127.0.0.1:8000/docs     - Swagger UI (testa endpoints no browser)
+#   http://127.0.0.1:8000/redoc    - documentação alternativa
+```
+
+**Endpoints principais:**
+- `POST /jobs` — cria job a partir de URL (JSON `{"source": "..."}`)
+- `POST /jobs/upload` — cria job via upload de arquivo (multipart)
+- `GET /jobs` — lista todos os jobs
+- `GET /jobs/{id}` — estado atual de um job
+- `WS /jobs/{id}/ws` — stream de progresso em tempo real
+- `GET /jobs/{id}/clips` — lista os MP4s finais
+- `GET /jobs/{id}/clips/{n}` — baixa um clip específico
 
 ### Pipeline em 1 comando (Etapa 6)
 
