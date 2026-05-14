@@ -132,11 +132,11 @@ def _seconds_to_ass_time(t: float) -> str:
 # ============================================================
 
 DEFAULT_FONT = "Arial Black"      # disponivel em qualquer Windows e Linux Mint
-DEFAULT_FONT_SIZE = 90            # bem grande pra Shorts
+DEFAULT_FONT_SIZE = 100            # bem grande pra Shorts
 DEFAULT_OUTLINE_WIDTH = 5         # contorno preto grosso
 DEFAULT_SHADOW = 2                # sombra leve
 DEFAULT_POS_X = 540               # centro horizontal de 1080
-DEFAULT_POS_Y = 960               # centro vertical de 1920
+DEFAULT_POS_Y = 1450               # centro inferior vertical de 1920
 
 
 def build_ass_content(
@@ -158,7 +158,7 @@ def build_ass_content(
         chunks:        Chunks ordenados cronologicamente.
         play_res_x/y:  Resolucao do video (1080x1920 pra Shorts).
         font_name:     Nome da fonte (deve estar instalada no sistema).
-        font_size:     Tamanho em pontos. 90 e legivel em mobile sem ocupar metade da tela.
+        font_size:     Tamanho em pontos. 100 e legivel em mobile sem ocupar metade da tela.
         outline_width: Espessura do contorno preto. 5 = grosso, ajuda em qualquer fundo.
         shadow:        Sombra deslocada. 2 = subtil mas perceptivel.
         pos_x/y:       Posicao do centro da legenda (\\an5 = anchor no centro).
