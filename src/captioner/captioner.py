@@ -114,14 +114,43 @@ def generate_ass_for_clip(
     return output_ass_path
 
 
-def burn_subtitles(video_path: Path | str, ass_path: Path | str, output_path: Path | str) -> Path:
+def _probe_duration(video_path: Path) -> float:
     """
-    Queima as legendas .ass no video usando FFmpeg subtitles filter.
+    Le duracao do video via ffprobe. Retorna 0.0 se falhar.
+
+    Necessario pra calcular onde comecar o fade out (ultimos N segundos).
+    """
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(result.stdout.strip()) if result.returncode == 0 else 0.0
+    except (FileNotFoundError, ValueError, subprocess.TimeoutExpired):
+        return 0.0
+
+
+def burn_subtitles(
+    video_path: Path | str,
+    ass_path: Path | str,
+    output_path: Path | str,
+    *,
+    fade_out_seconds: float = 3.0,
+    fade_in_seconds: float = 0.3,
+) -> Path:
+    """
+    Queima legendas .ass no video + aplica fade in/out de video e audio.
 
     Args:
-        video_path:  MP4 cropado (output da Etapa 4).
-        ass_path:    Arquivo .ass com as legendas.
-        output_path: Onde salvar o MP4 final.
+        video_path:       MP4 cropado (output da Etapa 4).
+        ass_path:         Arquivo .ass com as legendas.
+        output_path:      Onde salvar o MP4 final.
+        fade_out_seconds: Duracao do fade pra preto + audio fade out
+                          aplicado nos ULTIMOS N segundos. Default 3.0.
+                          Use 0 pra desativar.
+        fade_in_seconds:  Duracao do fade in (do preto pro video) no INICIO.
+                          Default 0.3. Use 0 pra desativar.
 
     Returns:
         Path do video final.
@@ -130,24 +159,32 @@ def burn_subtitles(video_path: Path | str, ass_path: Path | str, output_path: Pa
         RuntimeError: Se o FFmpeg falhar.
 
     Por que copiamos os arquivos pra um diretorio temporario:
-        O filter `subtitles=` do FFmpeg tem um parser MUITO sensivel a
-        caracteres especiais no caminho:
-            ! , | ( ) espacos acentos ' (aspas simples)
-        Mesmo escapando, varios casos quebram. A solucao 100% confiavel
-        e copiar o video + .ass pra um diretorio tempo com nomes ASCII
-        simples (input.mp4 / subs.ass), rodar FFmpeg, e mover o output
-        de volta pro caminho final desejado.
+        O filter `subtitles=` do FFmpeg tem parser MUITO sensivel a
+        caracteres especiais no caminho (! , | ( ) espacos acentos).
+        Copiar pra path ASCII (input.mp4 / subs.ass) elimina o problema.
 
-        Custo: copia 1x cada arquivo. Pra clips de Shorts (poucos MB),
-        e instantaneo. Bem melhor do que ficar brigando com escape.
+    Por que re-encodar audio agora:
+        afade= filter exige re-encode (nao da pra usar -c:a copy).
+        Custo perceptivel quase zero (audio AAC mantem qualidade alta).
+
+    Filtros aplicados na ordem:
+        Video:  subtitles -> fade in -> fade out
+        Audio:  afade in  -> afade out
     """
     video = Path(video_path).resolve()
     ass = Path(ass_path).resolve()
     output = Path(output_path).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    # Cria diretorio temporario com nome curto/ASCII
-    # `delete=False` nao se aplica a TemporaryDirectory - ele apaga automaticamente.
+    # Pega duracao do video pra calcular onde comeca o fade out
+    duration = _probe_duration(video)
+    if duration <= 0 and fade_out_seconds > 0:
+        logger.warning("Nao consegui ler duracao - desativando fade out")
+        fade_out_seconds = 0
+
+    # Calcula start do fade out (max evita negativo)
+    fade_out_start = max(0.0, duration - fade_out_seconds)
+
     with tempfile.TemporaryDirectory(prefix="shorts_cap_") as tmp_dir:
         tmp_dir_path = Path(tmp_dir)
 
@@ -159,34 +196,53 @@ def burn_subtitles(video_path: Path | str, ass_path: Path | str, output_path: Pa
         shutil.copy2(video, tmp_video)
         shutil.copy2(ass, tmp_ass)
 
-        # Path do .ass pro FFmpeg: forward slashes + escape do ':' da unidade.
-        # Como agora os nomes sao ASCII, esse escape e suficiente.
+        # Path do .ass formato FFmpeg-compativel
         ass_str = str(tmp_ass).replace("\\", "/")
         if len(ass_str) >= 2 and ass_str[1] == ":":
             ass_str = ass_str[0] + "\\:" + ass_str[2:]
 
-        vf = f"subtitles='{ass_str}'"
+        # Monta a video filter chain
+        vf_parts = [f"subtitles='{ass_str}'"]
+        if fade_in_seconds > 0:
+            vf_parts.append(f"fade=t=in:st=0:d={fade_in_seconds}")
+        if fade_out_seconds > 0:
+            vf_parts.append(f"fade=t=out:st={fade_out_start}:d={fade_out_seconds}")
+        vf = ",".join(vf_parts)
+
+        # Monta a audio filter chain (so se houver fade pra aplicar)
+        af_parts = []
+        if fade_in_seconds > 0:
+            af_parts.append(f"afade=t=in:st=0:d={fade_in_seconds}")
+        if fade_out_seconds > 0:
+            af_parts.append(f"afade=t=out:st={fade_out_start}:d={fade_out_seconds}")
 
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "warning",
             "-i", str(tmp_video),
             "-vf", vf,
+        ]
+        # Audio: aplica fade SE solicitado, senao copia direto (mais rapido)
+        if af_parts:
+            cmd += ["-af", ",".join(af_parts), "-c:a", "aac", "-b:a", "128k"]
+        else:
+            cmd += ["-c:a", "copy"]
+
+        cmd += [
             "-c:v", "libx264", "-preset", "medium", "-crf", "20",
             "-pix_fmt", "yuv420p",
-            "-c:a", "copy",   # audio sem re-encode (rapido + sem perda)
             "-movflags", "+faststart",
             str(tmp_output),
         ]
 
-        logger.info("Queimando legendas em %s", video.name)
+        fade_msg = f" (fade out {fade_out_seconds}s)" if fade_out_seconds > 0 else ""
+        logger.info("Queimando legendas em %s%s", video.name, fade_msg)
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg falhou:\n{result.stderr[-1500:]}")
 
-        # Move o output pra path final (que pode ter nome complicado)
         shutil.move(str(tmp_output), str(output))
 
-    logger.info("Video com legendas salvo: %s", output.name)
+    logger.info("Video com legendas + fade salvo: %s", output.name)
     return output
 
 
@@ -197,21 +253,27 @@ def caption_all_clips(
     cache_key_base: str,
     font_size: int = 90,
     max_words_per_chunk: int = 3,
+    fade_out_seconds: float = 3.0,
+    fade_in_seconds: float = 0.3,
+    cleanup_intermediates: bool = True,
 ) -> list[Path]:
     """
-    Gera legendas pra todos os clips da analise, usando os MP4s cropados
-    da Etapa 4 como input.
+    Gera legendas pra todos os clips da analise + queima nos MP4 cropados.
 
     Args:
-        transcript:          Transcript completo do video original.
-        analysis:            ViralAnalysis com os clips.
-        cache_key_base:      Mesmo prefixo usado na Etapa 4
-                             (ex: 'pregacao' -> usa pregacao_clip_1.mp4 etc).
-        font_size:           Tamanho da fonte.
-        max_words_per_chunk: 1-3 e o range util.
+        transcript:            Transcript completo do video original.
+        analysis:              ViralAnalysis com os clips.
+        cache_key_base:        Mesmo prefixo da Etapa 4 (ex: pregacao).
+        font_size:             Tamanho da fonte das legendas.
+        max_words_per_chunk:   1-3 e o range util.
+        fade_out_seconds:      Duracao do fade out (default 3.0).
+        fade_in_seconds:       Duracao do fade in (default 0.3).
+        cleanup_intermediates: Se True (default), apaga os _clip_N.mp4 sem
+                               legenda e renomeia os _captioned pro nome
+                               final simples. Se False, mantem ambos.
 
     Returns:
-        Lista de Paths dos MP4s finais com legendas em data/outputs/.
+        Lista de Paths dos MP4s finais com legendas.
 
     Pre-requisito:
         Etapa 4 ja precisa ter rodado - os MP4s cropados devem existir
@@ -239,9 +301,31 @@ def caption_all_clips(
             logger.warning("Pulando clip %d: %s", idx, e)
             continue
 
-        # Queima no MP4 final
-        final_output = OUTPUTS_DIR / f"{cache_key_base}_clip_{idx}_captioned.mp4"
-        burn_subtitles(cropped_video, ass_path, final_output)
-        outputs.append(final_output)
+        # Queima no MP4 com sufixo _captioned (intermediario do nome final)
+        captioned_temp = OUTPUTS_DIR / f"{cache_key_base}_clip_{idx}_captioned.mp4"
+        burn_subtitles(
+            cropped_video, ass_path, captioned_temp,
+            fade_out_seconds=fade_out_seconds,
+            fade_in_seconds=fade_in_seconds,
+        )
+
+        # Limpa intermediarios e renomeia pro nome final.
+        # Comportamento padrao: data/outputs/ fica SOMENTE com os finais
+        # com legenda, com nome simples <base>_clip_N.mp4.
+        if cleanup_intermediates:
+            try:
+                cropped_video.unlink()  # remove o cropado sem legenda
+            except FileNotFoundError:
+                pass
+            # Renomeia _captioned -> nome final (sem sufixo)
+            final_path = OUTPUTS_DIR / f"{cache_key_base}_clip_{idx}.mp4"
+            if final_path.exists():
+                final_path.unlink()  # garante override em re-runs
+            captioned_temp.rename(final_path)
+            outputs.append(final_path)
+            logger.info("Limpeza: %s removido, final em %s",
+                        cropped_video.name, final_path.name)
+        else:
+            outputs.append(captioned_temp)
 
     return outputs

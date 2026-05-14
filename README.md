@@ -34,7 +34,7 @@ O projeto é construído etapa por etapa, cada módulo testável de forma isolad
 - [x] **Etapa 3** — Análise viral via Gemini (templates por nicho)
 - [x] **Etapa 4** — Reenquadramento vertical com tracking de rosto (MediaPipe + FFmpeg)
 - [x] **Etapa 5** — Legendas estilo Opus (palavra-por-palavra, ASS + FFmpeg)
-- [ ] **Etapa 6** — Exportação final (FFmpeg)
+- [x] **Etapa 6** — Pipeline orquestrador end-to-end (1 comando faz tudo)
 - [ ] **Etapa 7** — API FastAPI envolvendo o pipeline
 - [ ] **Etapa 8** — Frontend simples (HTML → React no futuro)
 
@@ -162,6 +162,23 @@ python -m src.captioner.cli "data/temp/pregacao.transcript.json" "data/temp/preg
 
 # Resultado final: data/outputs/pregacao_clip_N_captioned.mp4
 ```
+
+### Pipeline em 1 comando (Etapa 6)
+
+Pra rodar tudo de uma vez sem chamar cada etapa separadamente:
+
+```bash
+# Direto da URL do YouTube:
+python -m src.pipeline "https://www.youtube.com/watch?v=..."
+
+# Ou de um arquivo local:
+python -m src.pipeline "data/inputs/meu_video.mp4"
+
+# Customizando opções:
+python -m src.pipeline "URL" --model small --lang pt --max-clips 3 --words 2
+```
+
+O pipeline reusa **todos os caches** de etapas intermediárias — se você rodar 2x no mesmo vídeo, transcrição e análise são puladas.
 
 Todos os intermediários são **cacheados em `data/temp/`** — rodar de novo é instantâneo.
 

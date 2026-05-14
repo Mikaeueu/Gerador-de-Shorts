@@ -270,6 +270,17 @@ def detect_face_trajectory(
         backend=backend,
     )
 
+    # Estrategia "sticky": quando o detector falha em algum frame,
+    # mantemos a ULTIMA posicao detectada conhecida. Isso evita o
+    # comportamento amador de "balanco" - antes, frames sem deteccao
+    # caiam pra x_center=0.5 (centro), e quando a pessoa esta parada
+    # mas nao no centro, o crop ficava pulando entre o real e o centro.
+    #
+    # Inicializamos com 0.5 (centro) como fallback se NUNCA detectarmos
+    # nada no clip todo (raro, mas precisamos de um valor inicial).
+    last_known_x: float = 0.5
+    has_ever_detected = False
+
     try:
         current_t = start_s
         while current_t < end_s:
@@ -281,20 +292,36 @@ def detect_face_trajectory(
             result = detector.detect(frame)
             if result is not None:
                 x_center, confidence = result
+                last_known_x = x_center  # atualiza memoria
+                has_ever_detected = True
                 trajectory.samples.append(FaceSample(
                     time=current_t, x_center=x_center,
                     detected=True, confidence=confidence,
                 ))
             else:
-                # Fallback: crop central
+                # Sem deteccao: usa ultima posicao conhecida.
+                # Se nunca detectamos antes, last_known_x=0.5 (centro).
                 trajectory.samples.append(FaceSample(
-                    time=current_t, x_center=0.5, detected=False,
+                    time=current_t, x_center=last_known_x, detected=False,
                 ))
 
             current_t += sample_interval
     finally:
         detector.close()
         cap.release()
+
+    # Se conseguimos detectar em algum momento, fazemos uma "passada
+    # retroativa": samples NO INICIO do clip que cairam no fallback
+    # (antes de qualquer deteccao real) recebem o x da PRIMEIRA deteccao.
+    # Isso evita que o clip comece em x=0.5 antes de ir pra posicao certa.
+    if has_ever_detected:
+        first_detected_x = next(
+            (s.x_center for s in trajectory.samples if s.detected), 0.5
+        )
+        for s in trajectory.samples:
+            if s.detected:
+                break  # primeiro detectado - parar aqui
+            s.x_center = first_detected_x
 
     logger.info("Tracking concluido: %d samples, %.0f%% detectados",
                 len(trajectory.samples), trajectory.detected_ratio() * 100)

@@ -45,6 +45,8 @@ def main() -> int:
                         help="Tamanho da fonte em pontos (default: 90)")
     parser.add_argument("--words", type=int, default=3,
                         help="Palavras por chunk visivel (default: 3, range: 1-5)")
+    parser.add_argument("--keep-intermediates", action="store_true",
+                        help="Mantem os _clip_N.mp4 sem legenda (default: apaga)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -78,6 +80,7 @@ def main() -> int:
             cache_key_base=cache_key_base,
             font_size=args.font_size,
             max_words_per_chunk=args.words,
+            cleanup_intermediates=not args.keep_intermediates,
         )
     except Exception as e:
         print(f"[erro] {type(e).__name__}: {e}", file=sys.stderr)

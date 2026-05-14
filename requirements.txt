@@ -24,7 +24,7 @@ numpy>=1.26.0            # arrays pra suavização da trajetória
 # (FFmpeg é binário do sistema, não dependência Python)
 
 # ---- Etapa 7: API ----
-# fastapi>=0.115.0
-# uvicorn[standard]>=0.32.0
-# python-multipart>=0.0.12  # uploads
-# pydantic>=2.9.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0     # standard inclui websockets, watchgod, etc
+python-multipart>=0.0.12      # parsing de uploads multipart/form-data
+# pydantic ja vem instalado pela Etapa 3

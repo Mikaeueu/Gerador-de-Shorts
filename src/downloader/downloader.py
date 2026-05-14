@@ -156,11 +156,21 @@ def _download_from_url(url: str, out_dir: Path) -> VideoSource:
 
     Decisões técnicas explicadas:
 
-        format = 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]':
-            - Limita resolução a 720p porque o output final é vertical 1080x1920.
-              Baixar 4K seria desperdício de banda e disco.
-            - `bestvideo + bestaudio` baixa as 2 trilhas separadas e o yt-dlp junta.
-              O `/best[height<=720]` é fallback caso o site não tenha trilhas separadas.
+        format = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best':
+            Pega a MELHOR QUALIDADE disponível, sem limite de resolução.
+            Estratégia em 3 fallbacks (yt-dlp tenta na ordem):
+                1. Melhor vídeo MP4 + melhor áudio M4A (preferido = compatível com FFmpeg)
+                2. Melhor vídeo + melhor áudio em qualquer formato
+                3. Melhor stream pré-combinado (caso o site não separe trilhas)
+
+            Por que sem limite de altura:
+                Vídeos da fonte podem ter qualquer resolução (1080p, 4K).
+                Mesmo o output sendo 1080x1920, partir de uma fonte 4K dá:
+                    - Mais detalhe pra cropar (rosto fica nítido após crop)
+                    - Mais opções de tracking (mais pixels, melhor detecção)
+                    - Qualidade visual superior nos Shorts finais
+                FUTURO: quando tiver frontend, deixar o usuário escolher
+                a qualidade (HD/FullHD/4K) baseado em banda disponível.
 
         merge_output_format = 'mp4':
             Força o arquivo final a ser .mp4 (mais simples pra FFmpeg processar depois).
@@ -177,7 +187,8 @@ def _download_from_url(url: str, out_dir: Path) -> VideoSource:
     outtmpl = str(out_dir / "%(title)s [%(id)s].%(ext)s")
 
     ydl_opts = {
-        "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]",
+        # Sem restrição de altura — pega a melhor qualidade disponível
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "merge_output_format": "mp4",
         "outtmpl": outtmpl,
         "noplaylist": True,
