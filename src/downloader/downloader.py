@@ -188,7 +188,7 @@ def _download_from_url(url: str, out_dir: Path) -> VideoSource:
 
     ydl_opts = {
         # Sem restrição de altura — pega a melhor qualidade disponível
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+        "format": "bestvideo+bestaudio/best",
         "merge_output_format": "mp4",
         "outtmpl": outtmpl,
         "noplaylist": True,
