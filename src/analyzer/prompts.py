@@ -205,6 +205,112 @@ Retorne APENAS JSON valido. Sem markdown.
 
 
 # ============================================================
+# Template: GAMEPLAY HUMOR (livestreams, reacoes, fails, clutches)
+# ============================================================
+
+def build_gameplay_humor_prompt(
+    transcript: Transcript,
+    *,
+    min_clip_seconds: float = 15,
+    max_clip_seconds: float = 60,
+    max_clips: int = 8,
+    min_score: float = 7.0,
+) -> str:
+    """
+    Prompt customizado pra detectar trechos virais em GAMEPLAY DE HUMOR.
+
+    Diferente de pregacao (que valoriza profundidade e versiculo+aplicacao),
+    gameplay de humor depende de:
+        - Reacao EXAGERADA do streamer (susto, grito, riso histerico)
+        - Timing de comedia (setup curto + punchline)
+        - Fail epico ou clutch improvavel
+        - Quebra da quarta parede (reagindo ao chat, ao jogo, a si mesmo)
+        - Frase aleatoria que vira meme
+
+    Defaults diferentes do template evangelico:
+        - Clips MAIS CURTOS (15-60s) - atencao em gaming e mais rapida
+        - MAIS clips por video (8 default) - lives sao longas e tem
+          muitos momentos isolados
+        - Score 7.0 mantido - ainda queremos qualidade
+
+    Args:
+        transcript:       Resultado da Etapa 2.
+        min_clip_seconds: Default 15s (vs 45s evangelico).
+        max_clip_seconds: Default 60s.
+        max_clips:        Default 8.
+        min_score:        Default 7.0.
+
+    Returns:
+        Prompt completo pra mandar pro Gemini.
+    """
+    transcript_text = _format_transcript_with_timestamps(transcript)
+
+    return f"""Voce e um especialista em conteudo viral de GAMEPLAY E HUMOR para TikTok, Shorts e Reels.
+
+Sua tarefa: analisar a transcricao abaixo (de uma live/video de gameplay) e identificar os melhores momentos para virarem clips curtos e engracados.
+
+# Criterios virais em gameplay/humor
+
+Um trecho tem ALTO potencial viral quando contem UM OU MAIS desses elementos:
+
+1. **Reacao exagerada do streamer** - grito de susto, riso histerico, palavrao de surpresa, exclamacao espontanea. Quanto mais barulho/intensidade, melhor.
+   Ex: "AAAAA NÃO ACREDITO!", "QUE QUE FOI ISSO?!"
+
+2. **Fail epico** - personagem morre/falha de jeito ridiculo, comete erro absurdo, cai num lugar improvavel. Bonus se o streamer reage com frustracao comica.
+
+3. **Clutch / virada improvavel** - vitoria no ultimo segundo, jogada absurda que deu certo, streak miraculoso. O publico AMA "no last second".
+
+4. **Bug / glitch engracado** - fisica do jogo dando merda, NPC fazendo algo bizarro, animacao quebrada de forma comica.
+
+5. **Quebra da quarta parede** - streamer respondendo ao chat de forma engracada, comentario auto-depreciativo, reconhecendo que algo absurdo aconteceu.
+
+6. **Timing de comedia** - sequencia onde o setup curto leva a um punchline. Frustracao crescente que culmina num momento explosivo.
+
+7. **Frase meme-worthy** - bordao espontaneo, comentario aleatorio que e tao especifico que vira meme. Ex: "VAI TOMAR NO C* JOÃO", "TA RINDO DE QUE?"
+
+8. **Momento de troll** - streamer trollando alguem ou sendo trollado de jeito hilario.
+
+9. **Coincidencia perfeita** - algo no jogo aconteceu EXATAMENTE quando o streamer disse algo - sincronizacao improvavel.
+
+# Criterios tecnicos OBRIGATORIOS
+
+- Duracao de CADA clip: entre {min_clip_seconds:.0f} e {max_clip_seconds:.0f} segundos.
+- INCLUA 1-3 segundos de SETUP antes do momento engracado (contexto e essencial pra graca fazer sentido).
+- TERMINE LOGO APOS o momento de impacto (nao deixe a graca "morrer" com silencio depois).
+- Use timestamps EXATOS da transcricao (nao invente).
+- Evite clips com 5+ segundos de silencio - perde o ritmo.
+- Score 0-10. So inclua clips com score >= {min_score:.1f}.
+- Retorne NO MAXIMO {max_clips} clips. Lives tem muitos momentos - filtre os MELHORES.
+- PRIORIZE clips com REACAO BARULHENTA do streamer (gameplay sem grito = clipe morto).
+
+# Sobre os campos da resposta
+
+- `title`: titulo curto pro Short (max 80 chars). Use linguagem casual de gamer/internet.
+  Pode usar maiusculas pra enfase, emoji moderado.
+  Bom: "Ele MORREU do nada e a reação foi PERFEITA 😂"
+  Bom: "Esse clutch é IMPOSSIVEL"
+  Ruim: "Momento engracado do video" / "Gameplay parte 5"
+
+- `hook`: as primeiras 1-2 falas do clip (que dao o setup pra graca).
+
+- `quote`: A frase mais "memetic" do trecho - aquela que pode virar bordao/print.
+  Se nao houver uma frase clara que se destaca sozinha, deixe null.
+
+- `reason`: 1-2 frases explicando POR QUE esse trecho funcionaria como Short.
+  Ex: "Setup de frustracao construindo + reacao explosiva no fim. Frase 'ta de brincadeira' ja virou meme em outros clipes."
+
+# Transcricao (formato: [inicio-fim em segundos] texto)
+
+{transcript_text}
+
+# Saida esperada
+
+Retorne APENAS um JSON valido seguindo o schema. Sem texto antes/depois, sem markdown.
+Idioma: o mesmo da transcricao.
+"""
+
+
+# ============================================================
 # Registro de templates disponiveis
 # ============================================================
 
@@ -215,5 +321,51 @@ Retorne APENAS JSON valido. Sem markdown.
 #   TEMPLATES["meu_novo_template"] = build_meu_novo_template_prompt
 TEMPLATES = {
     "evangelical_preaching": build_evangelical_preaching_prompt,
+    "gameplay_humor": build_gameplay_humor_prompt,
     "generic": build_generic_prompt,
 }
+
+
+# ============================================================
+# Smart defaults POR TEMPLATE
+# ============================================================
+# Cada nicho tem duracao/quantidade ideais diferentes.
+# Quando o user nao passa explicitamente, usamos esses defaults.
+# Pregacao = clips longos e densos (45-90s, ~5).
+# Gameplay = clips curtos e em volume (15-60s, ate 8).
+TEMPLATE_DEFAULTS: dict[str, dict] = {
+    "evangelical_preaching": {
+        "min_clip_seconds": 45.0,
+        "max_clip_seconds": 90.0,
+        "max_clips": 5,
+        "min_score": 7.0,
+    },
+    "gameplay_humor": {
+        "min_clip_seconds": 15.0,
+        "max_clip_seconds": 60.0,
+        "max_clips": 8,
+        "min_score": 7.0,
+    },
+    "generic": {
+        "min_clip_seconds": 45.0,
+        "max_clip_seconds": 90.0,
+        "max_clips": 5,
+        "min_score": 7.0,
+    },
+}
+
+
+def get_template_defaults(template: str) -> dict:
+    """
+    Retorna os defaults apropriados pro template.
+
+    Se template nao tem defaults explicitos, cai no 'generic'.
+
+    Args:
+        template: Nome do template (ex: "gameplay_humor").
+
+    Returns:
+        Dict com min_clip_seconds, max_clip_seconds, max_clips, min_score.
+    """
+    return TEMPLATE_DEFAULTS.get(template, TEMPLATE_DEFAULTS["generic"]).copy()
+

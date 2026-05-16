@@ -1,6 +1,10 @@
 """
 JobStore - persistencia de jobs em arquivos JSON.
 
+Tambem responsavel por DELETAR jobs: alem de apagar o JSON em data/jobs/,
+faz cleanup dos arquivos relacionados (clips em data/outputs/<subpasta>/
+e caches em data/temp/<cache_key>.*). Ver delete_job().
+
 Por que JSON files (em vez de SQLite/Redis):
     - Sem deps extras alem das que a API ja precisa.
     - Persiste reinicios do server (data/jobs/<id>.json fica no disco).
@@ -15,13 +19,20 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from src.api.schemas import Job, JobParams, JobStatus
-from src.common.paths import DATA_DIR, ensure_dirs
+from src.common.paths import (
+    DATA_DIR,
+    OUTPUTS_DIR,
+    TEMP_DIR,
+    _sanitize_folder_name,
+    ensure_dirs,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +144,79 @@ def list_jobs(limit: int = 50) -> list[Job]:
     # Ordena por created_at desc
     jobs.sort(key=lambda j: j.created_at, reverse=True)
     return jobs[:limit]
+
+
+def delete_job(job_id: str) -> bool:
+    """
+    Deleta um job e TODOS os arquivos relacionados a ele.
+
+    Apaga:
+        1. JSON do job em data/jobs/<id>.json
+        2. Subpasta de clips em data/outputs/<nome_video>/ (recursivo)
+        3. Cache em data/temp/<cache_key>.* (transcript, refined, viral, crop, .ass)
+
+    NAO apaga:
+        - O video original em data/inputs/ (user pode querer reprocessar)
+        - O modelo Whisper baixado (compartilhado entre jobs)
+        - Outros jobs
+
+    Args:
+        job_id: ID do job a apagar.
+
+    Returns:
+        True se conseguiu apagar (ou parcialmente apagou).
+        False se o job nem existia.
+    """
+    job = get_job(job_id)
+    if job is None:
+        return False
+
+    # ----- 1. Apaga subpasta de outputs (clips finais) -----
+    # Tenta primeiro pelo cache_key salvo, senao infere pelo primeiro clip.
+    subfolder_name: Optional[str] = None
+    if job.cache_key:
+        subfolder_name = _sanitize_folder_name(job.cache_key)
+    elif job.clips:
+        # Fallback: pega o nome da subpasta do path do primeiro clip.
+        # Format: "<subpasta>/<arquivo.mp4>"
+        subfolder_name = job.clips[0].split("/")[0]
+
+    if subfolder_name:
+        subfolder = OUTPUTS_DIR / subfolder_name
+        if subfolder.exists() and subfolder.is_dir():
+            try:
+                shutil.rmtree(subfolder)
+                logger.info("Apagada subpasta de outputs: %s", subfolder.name)
+            except OSError as e:
+                logger.warning("Falha apagando subpasta %s: %s", subfolder, e)
+
+    # ----- 2. Apaga arquivos de cache em data/temp/ -----
+    # Sao: <cache_key>.transcript.json, .transcript.refined.json,
+    # .viral.json, _clip_N.crop.json, _clip_N.ass
+    if job.cache_key:
+        # Glob safe: matchs <cache_key>.* e <cache_key>_clip_*
+        patterns = [
+            f"{job.cache_key}.*",
+            f"{job.cache_key}_clip_*",
+        ]
+        for pattern in patterns:
+            for path in TEMP_DIR.glob(pattern):
+                try:
+                    if path.is_file():
+                        path.unlink()
+                except OSError as e:
+                    logger.warning("Falha apagando cache %s: %s", path, e)
+
+    # ----- 3. Apaga JSON do job -----
+    job_file = _job_path(job_id)
+    if job_file.exists():
+        try:
+            job_file.unlink()
+            logger.info("Job apagado: %s", job_id)
+        except OSError as e:
+            logger.warning("Falha apagando JSON do job %s: %s", job_id, e)
+
+    return True
 
 
 def update_job_progress(

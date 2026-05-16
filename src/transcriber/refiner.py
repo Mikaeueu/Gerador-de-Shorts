@@ -1,27 +1,27 @@
 """
-Etapa 2.5 - Refinamento da transcricao via Gemini.
+Etapa 2.5 - Refinamento da transcricao via LLM.
 
-O problema que esse modulo resolve:
-    O Whisper (mesmo modelo 'small') comete erros tipicos de transcricao:
-        - Homofonos: "cessao/sessao", "ha/a", "mas/mais", "houve/ouve"
-        - Termos religiosos: "Filipenses", "ecumenico", "soteriologia"
-        - Nomes proprios biblicos: "Habacuque", "Eclesiastes"
-        - Conjugacoes: "viesse/visse", "houvesse/ouvesse"
+Estrategia de IAs (cadeia de fallback):
+    1. Groq + Llama 3.3 70B (PRIMARIO)
+       - Free tier sem limite diario fixo (30 req/min)
+       - Latencia super baixa (~1-3s)
+       - Sem cartao de credito necessario
+       - DEIXA O GEMINI LIVRE pro analyzer (Etapa 3) que e mais critico
+    2. Gemini 2.5 Flash (FALLBACK)
+       - Usado SO se Groq falhar (quota, rede, etc.)
+       - Consome quota diaria do Gemini
+    3. Se ambos falharem: retorna transcript ORIGINAL sem modificacao
+       - Garantia: nunca pioramos a transcricao
 
-    Esses erros passam batidos pra parte humana mas ficam visiveis nas
-    legendas estilo Opus (palavra-por-palavra) - ficam OBVIOS na tela.
+Por que essa ordem:
+    A correcao da transcricao e uma tarefa LINEAR (so trocar palavras erradas).
+    Llama 3.3 70B faz isso com qualidade indistinguivel do Gemini.
+    Reservamos o Gemini pro analyzer, que e uma tarefa mais CRIATIVA
+    (escolher quais trechos sao virais, escrever titulos com gancho).
 
-A solucao:
-    Mandamos a transcricao pro Gemini com instrucoes ESTRITAS de:
-        - SO substituir palavras erradas (nao adicionar/remover/reordenar)
-        - Manter EXATAMENTE o mesmo numero de palavras
-        - Manter ordem
-    Resultado: timestamps por palavra ficam INTACTOS.
-
-Validacao defensiva:
-    Se o Gemini quebrar a regra (mudou contagem de palavras), fazemos
-    FALLBACK pro Transcript original. Garantia: nunca pioramos a transcricao,
-    no maximo nao melhoramos.
+Validacao defensiva (importante):
+    Se o LLM quebrar a regra de "manter mesmo numero de palavras",
+    fazemos fallback pra transcricao original.
 """
 from __future__ import annotations
 
@@ -31,62 +31,37 @@ import os
 import re
 from dataclasses import replace
 from pathlib import Path
+from typing import Callable, Optional
 
 from src.common.paths import TEMP_DIR, ensure_dirs
 from src.transcriber.transcriber import Segment, Transcript, Word
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.5-flash"
-
 
 # ============================================================
-# Tokenizer simples
+# Helpers de tokenizacao + carregamento de .env
 # ============================================================
 
-# Regex que captura "palavras" (incluindo letras com acento, apostrofo, hifen).
-# Usada pra contar e dividir tokens consistentemente entre original e refinado.
 _WORD_PATTERN = re.compile(r"\S+")
 
 
 def _tokenize(text: str) -> list[str]:
-    """
-    Divide texto em tokens "palavra" (qualquer sequencia nao-espaco).
-
-    Por que nao usar split() puro:
-        split() normaliza multiplos espacos automaticamente, mas regex
-        permite ajuste futuro (ex: ignorar pontuacao isolada).
-
-    Returns:
-        Lista de strings sem espacos em branco.
-    """
+    """Divide texto em tokens 'palavra' (qualquer sequencia nao-espaco)."""
     return _WORD_PATTERN.findall(text)
 
 
-# ============================================================
-# Cliente Gemini (reusa logica do analyzer pra nao duplicar)
-# ============================================================
-
-def _get_gemini_client():
-    """Cria cliente Gemini lendo GOOGLE_API_KEY (idempotente, lazy)."""
+def _load_env() -> None:
+    """Carrega .env (no-op se dotenv nao estiver instalado)."""
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except ImportError:
         pass
 
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GOOGLE_API_KEY nao definida. "
-            "Crie sua chave em https://aistudio.google.com/app/apikey"
-        )
-    from google import genai
-    return genai.Client(api_key=api_key)
-
 
 # ============================================================
-# Construcao do prompt
+# Construcao do prompt (compartilhado por todos os providers)
 # ============================================================
 
 def _build_refinement_prompt(transcript: Transcript, context_hint: str) -> str:
@@ -95,20 +70,18 @@ def _build_refinement_prompt(transcript: Transcript, context_hint: str) -> str:
 
     Args:
         transcript:   Transcript original do Whisper.
-        context_hint: Pista do tipo de conteudo
-                      (ex: "pregacao evangelica em portugues do Brasil").
-                      Ajuda o LLM a corrigir termos especificos do nicho.
+        context_hint: Pista do tipo de conteudo (ex: "pregacao evangelica").
 
     Returns:
-        String do prompt completo.
+        Prompt completo (string) compartilhado por TODOS os providers.
     """
     return f"""Voce e um revisor especializado em transcricoes de {context_hint}.
 
 A transcricao abaixo foi gerada automaticamente por um sistema (Whisper) e \
 contem erros tipicos:
 - Palavras homofonas erradas (cessao/sessao, ha/a, mas/mais, houve/ouve)
-- Termos religiosos especificos mal transcritos (livros da Biblia, doutrinas)
-- Nomes proprios biblicos errados
+- Termos especificos mal transcritos
+- Nomes proprios errados
 - Conjugacoes verbais incorretas
 - Palavras compostas separadas ou juntadas erroneamente
 
@@ -135,25 +108,110 @@ preservando o numero exato de palavras.
 
 
 # ============================================================
+# Provider: GROQ (primario)
+# ============================================================
+
+def _refine_with_groq(prompt: str) -> str:
+    """
+    Refina via Groq (Llama 3.3 70B). Provider PRIMARIO.
+
+    Raises:
+        RuntimeError: Se GROQ_API_KEY nao definida.
+        Outras excecoes (rede/quota): propagadas pro caller.
+    """
+    _load_env()
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY nao definida (skip Groq)")
+    from groq import Groq
+    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    client = Groq(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,  # baixa = consistente
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+# ============================================================
+# Provider: GEMINI (fallback)
+# ============================================================
+
+def _refine_with_gemini(prompt: str) -> str:
+    """
+    Refina via Gemini 2.5 Flash. Provider FALLBACK.
+
+    Usado APENAS se Groq falhar. Reserva quota do Gemini pro analyzer.
+
+    Raises:
+        RuntimeError: Se GOOGLE_API_KEY nao definida.
+        Outras excecoes do Gemini: propagadas pro caller.
+    """
+    _load_env()
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY nao definida (skip Gemini)")
+    from google import genai
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config={"temperature": 0.1},
+    )
+    return (response.text or "").strip()
+
+
+# ============================================================
+# Cadeia de providers
+# ============================================================
+
+# Ordem: Groq (gratis e rapido) -> Gemini (gasta quota, ultimo recurso).
+# Se ambos falharem, refine_transcript() retorna o original.
+_REFINER_CHAIN: list[tuple[str, Callable[[str], str]]] = [
+    ("groq", _refine_with_groq),
+    ("gemini", _refine_with_gemini),
+]
+
+
+def _call_refiner_chain(prompt: str) -> tuple[str, str] | None:
+    """
+    Tenta cada provider em ordem ate um funcionar.
+
+    Returns:
+        Tupla (texto_refinado, provider_usado) ou None se TODOS falharam.
+    """
+    erros = []
+    for name, func in _REFINER_CHAIN:
+        try:
+            logger.info("Refiner: tentando %s...", name)
+            text = func(prompt)
+            if not text:
+                erros.append(f"{name}: resposta vazia")
+                continue
+            logger.info("Refiner: sucesso com %s", name)
+            return text, name
+        except Exception as e:
+            erros.append(f"{name}: {type(e).__name__}: {e}")
+            logger.warning("Refiner: %s falhou (%s). Tentando proximo...", name, e)
+
+    logger.warning(
+        "Refiner: TODOS os providers falharam:\n%s",
+        "\n".join(f"  - {x}" for x in erros),
+    )
+    return None
+
+
+# ============================================================
 # Aplicacao das correcoes preservando timestamps
 # ============================================================
 
 def _apply_corrections(original: Transcript, refined_text: str) -> Transcript | None:
     """
-    Tenta aplicar o texto refinado ao Transcript original, preservando timestamps.
+    Aplica o texto refinado ao Transcript original, preservando timestamps.
 
-    Estrategia:
-        - Tokeniza o texto refinado em palavras.
-        - Compara contagem com palavras do original.
-        - Se contagem BATER: substitui 1:1 (timestamps mantidos).
-        - Se NAO bater: retorna None (caller faz fallback).
-
-    Args:
-        original:     Transcript do Whisper com palavras+timestamps.
-        refined_text: Texto retornado pelo Gemini.
-
-    Returns:
-        Transcript refinado se conseguiu aplicar, None caso contrario.
+    Se a contagem de palavras NAO bater, retorna None (caller faz fallback).
     """
     refined_tokens = _tokenize(refined_text)
     original_words = list(original.all_words())
@@ -166,7 +224,6 @@ def _apply_corrections(original: Transcript, refined_text: str) -> Transcript | 
         )
         return None
 
-    # Substitui 1:1 dentro de cada segmento, mantendo timestamps
     refined_iter = iter(refined_tokens)
     new_segments: list[Segment] = []
     for seg in original.segments:
@@ -176,7 +233,6 @@ def _apply_corrections(original: Transcript, refined_text: str) -> Transcript | 
             new_text = next(refined_iter)
             new_words.append(replace(w, text=new_text))
             text_parts.append(new_text)
-        # Texto do segmento e a juncao das palavras refinadas
         new_text_for_seg = " ".join(text_parts)
         new_segments.append(replace(seg, text=new_text_for_seg, words=new_words))
 
@@ -184,7 +240,6 @@ def _apply_corrections(original: Transcript, refined_text: str) -> Transcript | 
         language=original.language,
         language_probability=original.language_probability,
         duration=original.duration,
-        # Marca o modelo pra deixar claro que foi refinado
         model_size=f"{original.model_size}+refined",
         segments=new_segments,
     )
@@ -200,31 +255,30 @@ def refine_transcript(
     context_hint: str = "pregacao evangelica em portugues do Brasil",
     cache_key: str | None = None,
     use_cache: bool = True,
-    model: str | None = None,
+    model: str | None = None,  # mantido pra compat, mas ignorado (chain decide)
 ) -> Transcript:
     """
-    Refina a transcricao do Whisper usando Gemini, preservando timestamps.
+    Refina a transcricao do Whisper usando cadeia de LLMs.
+
+    Estrategia:
+        1. Tenta Groq (Llama 3.3 70B) - free tier sem limite diario
+        2. Se Groq falhar, tenta Gemini (consome quota Gemini)
+        3. Se ambos falharem ou refinamento quebrar regras: retorna original
 
     Args:
-        transcript:   Transcript original (output do transcribe()).
-        context_hint: Descricao do tipo de conteudo. Default: pregacao
-                      evangelica. Mude se for outro nicho.
-        cache_key:    Nome base do cache. Ex: "pregacao" ->
-                      data/temp/pregacao.transcript.refined.json.
+        transcript:   Transcript original do transcribe().
+        context_hint: Descricao do conteudo pra orientar revisao.
+        cache_key:    Nome base do cache (ex: 'pregacao').
                       None = nao persiste.
-        use_cache:    Se True e cache existir, retorna ele. Default True.
-        model:        Modelo Gemini. Default: GEMINI_MODEL env ou flash.
+        use_cache:    Se True e cache existir, retorna ele.
+        model:        IGNORADO. Mantido por compat com chamadas antigas.
+                      A escolha do modelo agora vem da chain + env vars.
 
     Returns:
-        Transcript refinado. Se algo der errado (LLM quebrou regra,
-        falha de rede), retorna o original SEM modificacoes.
-
-    Raises:
-        Apenas erros catastroficos (sem GOOGLE_API_KEY). Erros do LLM
-        ou do match sao convertidos em fallback silencioso.
+        Transcript refinado, OU o original se nada funcionou.
+        Garantia: NUNCA piora a transcricao.
     """
     ensure_dirs()
-    model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
 
     # ----- Cache hit? -----
     cache_path: Path | None = None
@@ -234,50 +288,39 @@ def refine_transcript(
             logger.info("Cache hit (refined): %s", cache_path.name)
             return Transcript.load_json(cache_path)
 
-    # ----- Chama Gemini -----
-    logger.info("Refinando transcricao via %s (%d palavras)...",
-                model, sum(len(s.words) for s in transcript.segments))
+    # ----- Tenta a cadeia de providers -----
+    total_words = sum(len(s.words) for s in transcript.segments)
+    logger.info("Refinando transcricao (%d palavras)...", total_words)
 
-    try:
-        client = _get_gemini_client()
-        prompt = _build_refinement_prompt(transcript, context_hint)
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config={
-                # Temperatura BAIXA = saida deterministica (correcoes consistentes)
-                "temperature": 0.1,
-            },
-        )
-        refined_text = (response.text or "").strip()
-    except Exception as e:
-        logger.warning("Falha ao refinar (%s: %s). Usando transcricao original.",
-                       type(e).__name__, e)
+    prompt = _build_refinement_prompt(transcript, context_hint)
+    result = _call_refiner_chain(prompt)
+    if result is None:
+        # Todos falharam - usa original
         return transcript
-
-    if not refined_text:
-        logger.warning("Gemini retornou texto vazio. Usando transcricao original.")
-        return transcript
+    refined_text, provider_used = result
 
     # ----- Aplica correcoes -----
     refined = _apply_corrections(transcript, refined_text)
     if refined is None:
-        # Fallback: contagem nao bateu, retorna original
+        # Contagem nao bateu - usa original
         return transcript
 
     # ----- Persiste cache -----
     if cache_path:
         refined.save_json(cache_path)
-        logger.info("Refinamento salvo: %s", cache_path.name)
+        logger.info("Refinamento salvo: %s (provider=%s)",
+                    cache_path.name, provider_used)
 
-    # Conta quantas palavras mudaram (telemetria pro user)
+    # Telemetria: quantas palavras foram alteradas
     n_changed = sum(
         1
         for w_orig, w_new in zip(transcript.all_words(), refined.all_words())
         if w_orig.text.strip() != w_new.text.strip()
     )
-    total = sum(len(s.words) for s in transcript.segments)
-    logger.info("Refinamento aplicado: %d/%d palavras alteradas (%.1f%%)",
-                n_changed, total, 100 * n_changed / max(1, total))
+    logger.info(
+        "Refinamento aplicado via %s: %d/%d palavras alteradas (%.1f%%)",
+        provider_used, n_changed, total_words,
+        100 * n_changed / max(1, total_words),
+    )
 
     return refined

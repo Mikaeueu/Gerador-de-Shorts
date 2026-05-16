@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Design tokens - Linear/Vercel inspired dark mode
+   ============================================================ */
+@theme {
+  /* Cores base (mesmas do mockup HTML standalone) */
+  --color-bg-primary: #08080B;
+  --color-bg-secondary: #111114;
+  --color-bg-tertiary: #1A1A1F;
+  --color-bg-elevated: #1F1F25;
+
+  /* Texto */
+  --color-text-primary: #FAFAFA;
+  --color-text-secondary: #A1A1A6;
+  --color-text-tertiary: #6E6E76;
+
+  /* Bordas */
+  --color-border-subtle: rgb(255 255 255 / 0.06);
+  --color-border-medium: rgb(255 255 255 / 0.10);
+  --color-border-strong: rgb(255 255 255 / 0.16);
+
+  /* Accent (azul elétrico Linear) */
+  --color-accent: #5E6AD2;
+  --color-accent-hover: #6F7AE0;
+
+  /* Status */
+  --color-status-running: #F5A623;
+  --color-status-done: #4ADE80;
+  --color-status-failed: #EF4444;
+  --color-status-queued: #94A3B8;
+
+  /* Tipografia */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+
+  /* Border radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+/* ============================================================
+   Base styles
+   ============================================================ */
+html, body {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+#root { min-height: 100vh; }
+
+/* Scrollbar minimalista */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-medium);
+  border-radius: 999px;
+  border: 2px solid var(--color-bg-primary);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); }
+
+/* Spinner animation */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+}
+
+/* Pulse animation pra status indicators */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+
+/* Status dot com glow */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* "Calculando tempo..." - 3 pontinhos piscando em sequência.
+   Cada ponto tem delay diferente pra criar efeito de "onda". */
+@keyframes dot-fade {
+  0%, 80%, 100% { opacity: 0; }
+  40% { opacity: 1; }
+}
+.dots-loading-dot {
+  display: inline-block;
+  animation: dot-fade 1.4s infinite ease-in-out;
+}
+.dots-loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.dots-loading-dot:nth-child(3) { animation-delay: 0.4s; }

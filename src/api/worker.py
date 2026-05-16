@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -28,6 +29,44 @@ from src.api.jobs import get_job, update_job_progress
 from src.api.schemas import JobStatus, ProgressMessage
 from src.common.paths import OUTPUTS_DIR
 from src.pipeline import run_pipeline
+
+
+# ============================================================
+# Cancelamento de jobs em execucao
+# ============================================================
+
+# Dict global: job_id -> threading.Event que sinaliza cancelamento.
+# Quando o user chama POST /jobs/{id}/cancel, setamos o event.
+# O pipeline checa esse event no callback de progresso e aborta.
+_cancel_events: Dict[str, threading.Event] = {}
+
+
+class JobCancelledError(Exception):
+    """Levantada quando um job e cancelado pelo usuario."""
+
+
+def request_cancel(job_id: str) -> bool:
+    """
+    Sinaliza pro worker que o job deve parar na proxima checagem.
+
+    Args:
+        job_id: ID do job a cancelar.
+
+    Returns:
+        True se o job estava sendo executado e foi sinalizado.
+        False se o job nao existe ou ja terminou.
+    """
+    event = _cancel_events.get(job_id)
+    if event is None:
+        return False
+    event.set()
+    return True
+
+
+def is_cancelled(job_id: str) -> bool:
+    """Checa se um job foi marcado pra cancelar."""
+    event = _cancel_events.get(job_id)
+    return event is not None and event.is_set()
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +175,11 @@ def _make_progress_callback(
         Funcao callback que pode ser chamada de qualquer thread.
     """
     def callback(stage: str, message: str, percent: int) -> None:
+        # Checa se o user pediu cancelamento (via POST /jobs/{id}/cancel).
+        # Se sim, levanta JobCancelledError que e capturada no _run_job_blocking
+        # e marca o job como "cancelled" sem virar "failed".
+        if is_cancelled(job_id):
+            raise JobCancelledError(f"Job {job_id} cancelado pelo usuario")
         # 1. Persiste no disco (operacao sincrona, sem problema)
         update_job_progress(
             job_id,
@@ -170,6 +214,8 @@ def _run_job_blocking(job_id: str, loop: asyncio.AbstractEventLoop) -> None:
         logger.error("Job %s nao encontrado pra executar", job_id)
         return
 
+    # Registra event de cancelamento ANTES de comecar
+    _cancel_events[job_id] = threading.Event()
     update_job_progress(job_id, status=JobStatus.running, percent=0)
 
     callback = _make_progress_callback(job_id, loop)
@@ -191,8 +237,11 @@ def _run_job_blocking(job_id: str, loop: asyncio.AbstractEventLoop) -> None:
             fade_out_seconds=job.params.fade_out_seconds,
             on_progress=callback,
         )
-        # Salva caminhos relativos a data/outputs/
-        clip_names = [p.name for p in clips]
+        # Salva caminhos RELATIVOS a data/outputs/, com subpasta do video.
+        # Ex: "Não Ande Ansioso [X18HYF5HTAU]/O erro que TODO cristao comete.mp4"
+        # Isso permite que o endpoint /jobs/{id}/clips/{n} encontre o arquivo
+        # mesmo agora que cada video tem sua propria subpasta.
+        clip_names = [str(p.relative_to(OUTPUTS_DIR)).replace("\\", "/") for p in clips]
         update_job_progress(
             job_id,
             status=JobStatus.done,
@@ -208,6 +257,24 @@ def _run_job_blocking(job_id: str, loop: asyncio.AbstractEventLoop) -> None:
             percent=100,
         )
         asyncio.run_coroutine_threadsafe(broker.broadcast(job_id, final_msg), loop)
+    except JobCancelledError:
+        # Cancelamento solicitado pelo user - status especifico, sem stacktrace.
+        logger.info("Job %s cancelado pelo usuario", job_id)
+        update_job_progress(
+            job_id,
+            status=JobStatus.cancelled,
+            stage="cancelled",
+            message="Cancelado pelo usuario",
+        )
+        cancel_msg = ProgressMessage(
+            job_id=job_id, status=JobStatus.cancelled,
+            stage="cancelled", message="Cancelado pelo usuario", percent=0,
+        )
+        try:
+            asyncio.run_coroutine_threadsafe(broker.broadcast(job_id, cancel_msg), loop)
+        except Exception:
+            pass
+        return  # nao cai no Exception generico abaixo
     except Exception as e:
         err = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
         logger.exception("Job %s falhou", job_id)
@@ -226,6 +293,9 @@ def _run_job_blocking(job_id: str, loop: asyncio.AbstractEventLoop) -> None:
             asyncio.run_coroutine_threadsafe(broker.broadcast(job_id, fail_msg), loop)
         except Exception:
             pass
+    finally:
+        # Limpa o event de cancelamento - jobs terminados nao precisam mais dele
+        _cancel_events.pop(job_id, None)
 
 
 def schedule_job(job_id: str) -> None:

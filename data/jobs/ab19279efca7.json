@@ -1,0 +1,37 @@
+{
+  "id": "ab19279efca7",
+  "status": "done",
+  "source": "E:\\'projetos\\Gerador de Shorts\\data\\inputs\\edit1.mp4",
+  "source_kind": "upload",
+  "params": {
+    "whisper_model": "small",
+    "language": "pt",
+    "refine": true,
+    "refine_context": "pregacao evangelica em portugues do Brasil",
+    "template": "gameplay_humor",
+    "min_clip_seconds": null,
+    "max_clip_seconds": null,
+    "max_clips": null,
+    "min_score": null,
+    "font_size": 90,
+    "words_per_chunk": 3,
+    "fade_out_seconds": 3.0
+  },
+  "stage": "done",
+  "message": "Concluido: 7 clips",
+  "percent": 100,
+  "created_at": "2026-05-16T03:07:53.430720",
+  "started_at": "2026-05-16T03:07:53.437647",
+  "finished_at": "2026-05-16T03:18:53.140776",
+  "clips": [
+    "edit1/Mardak, eu vou fazer bullying com a sua mulher AGORA! 🤬.mp4",
+    "edit1/BUGOU TUDO! Fiquei PRESO no canto e ninguém me ajuda 😂.mp4",
+    "edit1/QUEM COLOCOU ESSA PRATELEIRA AQUI ! 😡 NPCs me impedem de trabalhar.mp4",
+    "edit1/PAREM DE GASTAR OS PONTOS! Os caras são BURROS ! 🤯.mp4",
+    "edit1/MEU DEUS! Quem colocou 2 produtos na mesma prateleira ! 🤦‍♂️.mp4",
+    "edit1/COMO ASSIM CRIARAM UM PILAR DO MEU LADO ! 🤣 Bugou tudo.mp4",
+    "edit1/VAI TOMAR! 😡 Streamer perde a paciência e BATE no cliente.mp4"
+  ],
+  "error": null,
+  "cache_key": null
+}

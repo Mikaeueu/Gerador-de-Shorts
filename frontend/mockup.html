@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shorts Generator — Mockup</title>
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<style>
+  /* ============================================================
+     Linear/Vercel inspired design system
+     ============================================================ */
+  :root {
+    /* Cores base (preto profundo Linear-like) */
+    --bg-primary:   #08080B;   /* fundo geral */
+    --bg-secondary: #111114;   /* cards e elevações */
+    --bg-tertiary:  #1A1A1F;   /* hover de cards */
+    --bg-elevated:  #1F1F25;   /* dropdowns, modals */
+
+    /* Bordas sutis */
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-medium: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.16);
+
+    /* Texto */
+    --text-primary:   #FAFAFA;
+    --text-secondary: #A1A1A6;
+    --text-tertiary:  #6E6E76;
+
+    /* Accent (azul elétrico Linear) */
+    --accent:        #5E6AD2;
+    --accent-hover:  #6F7AE0;
+    --accent-bg:     rgba(94, 106, 210, 0.10);
+
+    /* Status */
+    --status-running: #F5A623;
+    --status-running-bg: rgba(245, 166, 35, 0.10);
+    --status-done:    #4ADE80;
+    --status-done-bg: rgba(74, 222, 128, 0.10);
+    --status-failed:  #EF4444;
+    --status-failed-bg: rgba(239, 68, 68, 0.10);
+    --status-queued:  #94A3B8;
+    --status-queued-bg: rgba(148, 163, 184, 0.10);
+
+    /* Tipografia */
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+
+    /* Layout */
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  body { min-height: 100vh; }
+
+  /* ============================================================
+     Layout: Header + Container
+     ============================================================ */
+  .app-header {
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0 24px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-primary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(8px);
+  }
+
+  .app-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .logo-mark {
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .api-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    background: var(--status-done-bg);
+    border-radius: 999px;
+    font-size: 12px;
+    color: var(--status-done);
+    font-weight: 500;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+  }
+
+  .container {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+
+  /* ============================================================
+     Hero Section: input principal
+     ============================================================ */
+  .hero {
+    margin-bottom: 48px;
+  }
+
+  .hero-title {
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    margin-bottom: 8px;
+  }
+
+  .hero-subtitle {
+    color: var(--text-secondary);
+    font-size: 15px;
+    margin-bottom: 32px;
+  }
+
+  .input-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .input-icon {
+    padding: 0 8px 0 14px;
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+  }
+
+  .url-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    padding: 12px 4px;
+    height: 44px;
+  }
+
+  .url-input::placeholder { color: var(--text-tertiary); }
+
+  .upload-btn {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    padding: 0 14px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s;
+  }
+  .upload-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+  .generate-btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 0 18px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .generate-btn:hover { background: var(--accent-hover); }
+
+  /* Settings collapse */
+  .settings-toggle {
+    margin-top: 16px;
+    background: transparent;
+    border: none;
+    color: var(--text-tertiary);
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+  }
+  .settings-toggle:hover { color: var(--text-secondary); }
+
+  .settings-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  .setting-item {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+  }
+
+  .setting-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+
+  .setting-value {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  /* ============================================================
+     Section header
+     ============================================================ */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .section-meta {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+
+  /* ============================================================
+     Job Cards
+     ============================================================ */
+  .jobs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .job-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 16px 20px;
+    transition: all 0.15s;
+    cursor: pointer;
+  }
+  .job-card:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--border-medium);
+  }
+
+  .job-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .job-info { flex: 1; min-width: 0; }
+
+  .job-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .job-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+
+  .job-meta-item { display: inline-flex; align-items: center; gap: 4px; }
+  .job-meta-divider { color: var(--text-tertiary); opacity: 0.5; }
+
+  .job-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .status-running { background: var(--status-running-bg); color: var(--status-running); }
+  .status-done    { background: var(--status-done-bg);    color: var(--status-done);    }
+  .status-failed  { background: var(--status-failed-bg);  color: var(--status-failed);  }
+  .status-queued  { background: var(--status-queued-bg);  color: var(--status-queued);  }
+
+  /* Progress bar (jobs em running) */
+  .progress-section {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .progress-stage {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .progress-stage-label { color: var(--text-secondary); display: inline-flex; align-items: center; gap: 8px; }
+  .progress-stage-percent { color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+  .progress-bar {
+    height: 4px;
+    background: var(--bg-tertiary);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 999px;
+    transition: width 0.3s ease;
+  }
+
+  /* Spinning indicator */
+  .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Job DONE - clips preview */
+  .clips-preview {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .clip-thumb {
+    aspect-ratio: 9 / 16;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .clip-thumb:hover { transform: translateY(-2px); border-color: var(--border-medium); }
+
+  .clip-score {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    backdrop-filter: blur(4px);
+  }
+
+  .clip-thumb-content {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.6) 100%);
+  }
+
+  .clip-play-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.95);
+    color: #08080B;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .clip-info {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+  }
+
+  .clip-title {
+    font-size: 11px;
+    color: white;
+    font-weight: 500;
+    line-height: 1.3;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  }
+
+  .clip-duration {
+    font-size: 10px;
+    color: rgba(255,255,255,0.7);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ============================================================
+     Empty state placeholder pra clip thumb (mock)
+     ============================================================ */
+  .mock-clip {
+    background: linear-gradient(135deg, #2A2A35 0%, #16161B 100%);
+  }
+  .mock-clip-2 { background: linear-gradient(135deg, #2D2438 0%, #18121F 100%); }
+  .mock-clip-3 { background: linear-gradient(135deg, #1F2D38 0%, #11171F 100%); }
+  .mock-clip-4 { background: linear-gradient(135deg, #382D24 0%, #1F1812 100%); }
+  .mock-clip-5 { background: linear-gradient(135deg, #243828 0%, #121F14 100%); }
+
+  /* SVG icons utility */
+  .icon { width: 14px; height: 14px; stroke-width: 2; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .icon-sm { width: 12px; height: 12px; }
+  .icon-lg { width: 18px; height: 18px; }
+
+  /* Pulse pra status running */
+  .pulse {
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-logo">
+    <div class="logo-mark">S</div>
+    <span>Shorts Generator</span>
+  </div>
+  <div class="api-status">
+    <span class="status-dot"></span>
+    API conectada
+  </div>
+</header>
+
+<main class="container">
+
+  <!-- Hero / Input -->
+  <section class="hero">
+    <h1 class="hero-title">Transforme vídeos longos em Shorts virais</h1>
+    <p class="hero-subtitle">Cole um link do YouTube ou faça upload de um vídeo local.</p>
+
+    <div class="input-card">
+      <span class="input-icon">
+        <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </span>
+      <input type="text" class="url-input" placeholder="https://www.youtube.com/watch?v=..." value="https://www.youtube.com/watch?v=X18HYF5HTAU">
+      <button class="upload-btn">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Upload
+      </button>
+      <button class="generate-btn">
+        Gerar Shorts
+        <svg class="icon" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+    </div>
+
+    <button class="settings-toggle">
+      <svg class="icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      Configurações avançadas
+    </button>
+
+    <div class="settings-grid">
+      <div class="setting-item">
+        <div class="setting-label">Modelo Whisper</div>
+        <div class="setting-value">small</div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">Idioma</div>
+        <div class="setting-value">Português</div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">Máx. clips</div>
+        <div class="setting-value">5</div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">Template viral</div>
+        <div class="setting-value">Pregação evangélica</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Jobs Section -->
+  <section>
+    <div class="section-header">
+      <div class="section-title">Jobs recentes</div>
+      <div class="section-meta">3 jobs</div>
+    </div>
+
+    <div class="jobs-list">
+
+      <!-- Job RUNNING -->
+      <article class="job-card">
+        <div class="job-header">
+          <div class="job-info">
+            <div class="job-title">Não Ande Ansioso! A Paz de Deus que Guarda o Coração — Pb. Fabiano</div>
+            <div class="job-meta">
+              <span class="job-meta-item">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                iniciado há 4 min
+              </span>
+              <span class="job-meta-divider">·</span>
+              <span class="job-meta-item">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                YouTube
+              </span>
+            </div>
+          </div>
+          <span class="job-status status-running">
+            <span class="spinner pulse"></span>
+            Processando
+          </span>
+        </div>
+        <div class="progress-section">
+          <div class="progress-stage">
+            <span class="progress-stage-label">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>
+              Reenquadrando clips verticais (face tracking)
+            </span>
+            <span class="progress-stage-percent">75%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width: 75%"></div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Job DONE -->
+      <article class="job-card">
+        <div class="job-header">
+          <div class="job-info">
+            <div class="job-title">Como vencer a ansiedade segundo a Bíblia — Pr. Augustus Nicodemus</div>
+            <div class="job-meta">
+              <span class="job-meta-item">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+                concluído há 2h · 14 min
+              </span>
+              <span class="job-meta-divider">·</span>
+              <span class="job-meta-item">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                YouTube
+              </span>
+              <span class="job-meta-divider">·</span>
+              <span class="job-meta-item">5 clips</span>
+            </div>
+          </div>
+          <span class="job-status status-done">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+            Pronto
+          </span>
+        </div>
+        <div class="clips-preview">
+          <div class="clip-thumb mock-clip">
+            <div class="clip-score">9.2</div>
+            <div class="clip-thumb-content">
+              <div class="clip-play-icon">
+                <svg class="icon icon-lg" viewBox="0 0 24 24" stroke="none" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </div>
+              <div class="clip-info">
+                <div class="clip-title">A oração que Deus sempre responde</div>
+                <div class="clip-duration">0:48</div>
+              </div>
+            </div>
+          </div>
+          <div class="clip-thumb mock-clip-2">
+            <div class="clip-score">8.7</div>
+            <div class="clip-thumb-content">
+              <div class="clip-play-icon">
+                <svg class="icon icon-lg" viewBox="0 0 24 24" stroke="none" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </div>
+              <div class="clip-info">
+                <div class="clip-title">3 verdades sobre o coração ansioso</div>
+                <div class="clip-duration">1:12</div>
+              </div>
+            </div>
+          </div>
+          <div class="clip-thumb mock-clip-3">
+            <div class="clip-score">8.4</div>
+            <div class="clip-thumb-content">
+              <div class="clip-play-icon">
+                <svg class="icon icon-lg" viewBox="0 0 24 24" stroke="none" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </div>
+              <div class="clip-info">
+                <div class="clip-title">O erro que TODO cristão comete</div>
+                <div class="clip-duration">1:05</div>
+              </div>
+            </div>
+          </div>
+          <div class="clip-thumb mock-clip-4">
+            <div class="clip-score">8.0</div>
+            <div class="clip-thumb-content">
+              <div class="clip-play-icon">
+                <svg class="icon icon-lg" viewBox="0 0 24 24" stroke="none" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </div>
+              <div class="clip-info">
+                <div class="clip-title">Filipenses 4:6 explicado em 1 minuto</div>
+                <div class="clip-duration">0:58</div>
+              </div>
+            </div>
+          </div>
+          <div class="clip-thumb mock-clip-5">
+            <div class="clip-score">7.5</div>
+            <div class="clip-thumb-content">
+              <div class="clip-play-icon">
+                <svg class="icon icon-lg" viewBox="0 0 24 24" stroke="none" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </div>
+              <div class="clip-info">
+                <div class="clip-title">Você ora ou negocia com Deus?</div>
+                <div class="clip-duration">1:18</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Job QUEUED -->
+      <article class="job-card">
+        <div class="job-header">
+          <div class="job-info">
+            <div class="job-title">Sermão Domingo 12/05 — A graça que transforma</div>
+            <div class="job-meta">
+              <span class="job-meta-item">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                criado há 12 min
+              </span>
+              <span class="job-meta-divider">·</span>
+              <span class="job-meta-item">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Upload local · 480 MB
+              </span>
+            </div>
+          </div>
+          <span class="job-status status-queued">
+            Na fila
+          </span>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>

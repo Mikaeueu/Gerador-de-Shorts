@@ -1,0 +1,35 @@
+{
+  "id": "459684f36482",
+  "status": "done",
+  "source": "https://www.youtube.com/watch?v=pLf01bbydvM&t",
+  "source_kind": "url",
+  "params": {
+    "whisper_model": "small",
+    "language": "pt",
+    "refine": true,
+    "refine_context": "pregacao evangelica em portugues do Brasil",
+    "template": "evangelical_preaching",
+    "min_clip_seconds": null,
+    "max_clip_seconds": null,
+    "max_clips": null,
+    "min_score": null,
+    "font_size": 90,
+    "words_per_chunk": 3,
+    "fade_out_seconds": 3.0
+  },
+  "stage": "done",
+  "message": "Concluido: 5 clips",
+  "percent": 100,
+  "created_at": "2026-05-16T12:09:37.947675",
+  "started_at": "2026-05-16T12:09:37.956561",
+  "finished_at": "2026-05-16T12:55:35.015910",
+  "clips": [
+    "Salmo 27_14, A Palavra Que Fortalece o Coração ｜ Pr. Cesar Simões [pLf01bbydvM]/Quem é Esse Golias A Confiança de Davi que Venceu o Impossível.mp4",
+    "Salmo 27_14, A Palavra Que Fortalece o Coração ｜ Pr. Cesar Simões [pLf01bbydvM]/Você Foi Gerado de Novo para uma Viva Esperança! Entenda o Segredo.mp4",
+    "Salmo 27_14, A Palavra Que Fortalece o Coração ｜ Pr. Cesar Simões [pLf01bbydvM]/Deus Cuida de Você! Lançai Toda Ansiedade e Receba a Sua Paz.mp4",
+    "Salmo 27_14, A Palavra Que Fortalece o Coração ｜ Pr. Cesar Simões [pLf01bbydvM]/Pare de Sofrer e Viver com Ansiedade! A Receita é a Esperança de Deus.mp4",
+    "Salmo 27_14, A Palavra Que Fortalece o Coração ｜ Pr. Cesar Simões [pLf01bbydvM]/Por Que Deus te Leva ao 'Egito' Entenda o Propósito nas Provas.mp4"
+  ],
+  "error": null,
+  "cache_key": null
+}

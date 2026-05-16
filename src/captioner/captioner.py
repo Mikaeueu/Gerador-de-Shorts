@@ -15,6 +15,7 @@ Fluxo:
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -22,7 +23,7 @@ from pathlib import Path
 
 from src.analyzer.schemas import ViralAnalysis, ViralClip
 from src.captioner.ass_builder import build_ass_content, group_words_into_chunks
-from src.common.paths import OUTPUTS_DIR, TEMP_DIR, ensure_dirs
+from src.common.paths import OUTPUTS_DIR, TEMP_DIR, ensure_dirs, get_video_output_dir
 from src.transcriber import Transcript, Word
 
 logger = logging.getLogger(__name__)
@@ -246,6 +247,81 @@ def burn_subtitles(
     return output
 
 
+def _sanitize_filename(title: str, max_length: int = 80) -> str:
+    """
+    Converte um titulo do Gemini em um nome de arquivo seguro.
+
+    O titulo do clip vem do LLM e pode conter:
+        - Caracteres ilegais no Windows: / \\ : * ? " < > |
+        - Emojis (legais no nome mas as vezes confundem outras tools)
+        - Acentuacao (legal, mas mantida)
+        - Espacos no inicio/fim
+        - Pontuacao final que polui o nome
+
+    Esse helper:
+        1. Remove caracteres ilegais (substitui por espaco)
+        2. Remove emojis (categoria Symbol Other)
+        3. Colapsa multiplos espacos em um
+        4. Trunca pra max_length chars (sem cortar palavra no meio)
+        5. Remove pontuacao final (.!?,; etc.)
+
+    Args:
+        title:      Titulo bruto vindo do ViralClip.title.
+        max_length: Tamanho maximo do nome (antes da extensao).
+
+    Returns:
+        String safe pra usar como nome de arquivo.
+        Garantia: nunca retorna string vazia (cai pra "clip" se necessario).
+
+    Exemplos:
+        >>> _sanitize_filename("Voce esta orando ou negociando com Deus?")
+        "Voce esta orando ou negociando com Deus"
+
+        >>> _sanitize_filename("3 verdades: descubra agora!")
+        "3 verdades - descubra agora"
+    """
+    # Substitui chars ilegais Windows por espaco
+    sanitized = re.sub(r'[<>:"/\\|?*]', " ", title)
+    # Remove caracteres de controle
+    sanitized = re.sub(r"[\x00-\x1f]", "", sanitized)
+    # Colapsa whitespace
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    # Remove pontuacao final
+    sanitized = sanitized.rstrip(".!?,;: ")
+    # Trunca sem cortar palavra (busca o ultimo espaco antes do limite)
+    if len(sanitized) > max_length:
+        cut = sanitized[:max_length].rsplit(" ", 1)[0]
+        sanitized = cut if cut else sanitized[:max_length]
+    sanitized = sanitized.strip()
+    return sanitized or "clip"
+
+
+def _unique_path(base_dir: Path, base_name: str, ext: str = ".mp4") -> Path:
+    """
+    Retorna um Path unico em base_dir/<base_name><ext>.
+
+    Se ja existe arquivo com mesmo nome, adiciona sufixo numerico
+    (_2, _3, ...) ate achar um livre.
+
+    Args:
+        base_dir:  Diretorio de destino.
+        base_name: Nome desejado (sem extensao).
+        ext:       Extensao com ponto (ex: ".mp4").
+
+    Returns:
+        Path garantido nao-existente.
+    """
+    candidate = base_dir / f"{base_name}{ext}"
+    if not candidate.exists():
+        return candidate
+    counter = 2
+    while True:
+        candidate = base_dir / f"{base_name}_{counter}{ext}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def caption_all_clips(
     transcript: Transcript,
     analysis: ViralAnalysis,
@@ -256,34 +332,49 @@ def caption_all_clips(
     fade_out_seconds: float = 3.0,
     fade_in_seconds: float = 0.3,
     cleanup_intermediates: bool = True,
+    on_clip_progress=None,  # Callable[[int, int], None] | None
 ) -> list[Path]:
     """
     Gera legendas pra todos os clips da analise + queima nos MP4 cropados.
 
+    Comportamento de nomeacao:
+        - Cropados intermediarios usam <cache_key_base>_clip_N.mp4 (estavel,
+          casa com .crop.json pra edicao manual).
+        - Output FINAL e renomeado pro TITULO do clip vindo do Gemini,
+          sanitizado pra ser safe em filesystem (chars ilegais removidos,
+          truncado em ~80 chars, sufixo _2/_3 se houver colisao).
+
     Args:
         transcript:            Transcript completo do video original.
         analysis:              ViralAnalysis com os clips.
-        cache_key_base:        Mesmo prefixo da Etapa 4 (ex: pregacao).
+        cache_key_base:        Prefixo dos arquivos intermediarios.
         font_size:             Tamanho da fonte das legendas.
         max_words_per_chunk:   1-3 e o range util.
         fade_out_seconds:      Duracao do fade out (default 3.0).
         fade_in_seconds:       Duracao do fade in (default 0.3).
-        cleanup_intermediates: Se True (default), apaga os _clip_N.mp4 sem
-                               legenda e renomeia os _captioned pro nome
-                               final simples. Se False, mantem ambos.
+        cleanup_intermediates: Se True, apaga os _clip_N.mp4 sem legenda
+                               e renomeia o final pro titulo sanitizado.
 
     Returns:
-        Lista de Paths dos MP4s finais com legendas.
-
-    Pre-requisito:
-        Etapa 4 ja precisa ter rodado - os MP4s cropados devem existir
-        em data/outputs/<cache_key_base>_clip_N.mp4.
+        Lista de Paths dos MP4s finais (com nomes amigaveis).
     """
     ensure_dirs()
     outputs: list[Path] = []
+    total = len(analysis.clips)
+
+    # Subpasta dedicada ao video em data/outputs/<nome_video>/.
+    # Todos os clips finais ficam organizados aqui.
+    video_dir = get_video_output_dir(cache_key_base)
 
     for idx, clip in enumerate(analysis.clips, 1):
-        cropped_video = OUTPUTS_DIR / f"{cache_key_base}_clip_{idx}.mp4"
+        # Notifica progresso sub-etapa pra ETA mais preciso.
+        if on_clip_progress:
+            try:
+                on_clip_progress(idx, total)
+            except Exception:
+                pass
+
+        cropped_video = video_dir / f"{cache_key_base}_clip_{idx}.mp4"
         if not cropped_video.exists():
             logger.warning("Pulando clip %d: %s nao existe (rode Etapa 4 primeiro)",
                            idx, cropped_video.name)
@@ -301,30 +392,28 @@ def caption_all_clips(
             logger.warning("Pulando clip %d: %s", idx, e)
             continue
 
-        # Queima no MP4 com sufixo _captioned (intermediario do nome final)
-        captioned_temp = OUTPUTS_DIR / f"{cache_key_base}_clip_{idx}_captioned.mp4"
+        # Queima legenda em arquivo intermediario com sufixo _captioned
+        captioned_temp = video_dir / f"{cache_key_base}_clip_{idx}_captioned.mp4"
         burn_subtitles(
             cropped_video, ass_path, captioned_temp,
             fade_out_seconds=fade_out_seconds,
             fade_in_seconds=fade_in_seconds,
         )
 
-        # Limpa intermediarios e renomeia pro nome final.
-        # Comportamento padrao: data/outputs/ fica SOMENTE com os finais
-        # com legenda, com nome simples <base>_clip_N.mp4.
         if cleanup_intermediates:
+            # Apaga o cropado sem legenda
             try:
-                cropped_video.unlink()  # remove o cropado sem legenda
+                cropped_video.unlink()
             except FileNotFoundError:
                 pass
-            # Renomeia _captioned -> nome final (sem sufixo)
-            final_path = OUTPUTS_DIR / f"{cache_key_base}_clip_{idx}.mp4"
-            if final_path.exists():
-                final_path.unlink()  # garante override em re-runs
+
+            # Renomeia o final pro TITULO do clip vindo do Gemini.
+            # Garante nome unico se 2 clips tiverem titulos identicos.
+            safe_title = _sanitize_filename(clip.title)
+            final_path = _unique_path(video_dir, safe_title, ".mp4")
             captioned_temp.rename(final_path)
             outputs.append(final_path)
-            logger.info("Limpeza: %s removido, final em %s",
-                        cropped_video.name, final_path.name)
+            logger.info("Clip %d salvo como: %s", idx, final_path.name)
         else:
             outputs.append(captioned_temp)
 

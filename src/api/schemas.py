@@ -1,8 +1,5 @@
 """
 Schemas Pydantic da API - representam jobs e mensagens via HTTP/WebSocket.
-
-Esses models sao serializados pra JSON automaticamente pelo FastAPI nas
-respostas HTTP e nas mensagens WebSocket.
 """
 from __future__ import annotations
 
@@ -18,16 +15,12 @@ from pydantic import BaseModel, Field
 # ============================================================
 
 class JobStatus(str, Enum):
-    """
-    Estados possiveis de um job.
-
-    Fluxo normal: queued -> running -> done.
-    Fluxo de erro: queued -> running -> failed.
-    """
-    queued = "queued"      # criado mas ainda nao comecou
-    running = "running"    # processando agora
-    done = "done"          # concluido com sucesso
-    failed = "failed"      # erro durante processamento
+    """Estados possiveis de um job."""
+    queued = "queued"        # criado mas ainda nao comecou
+    running = "running"      # processando agora
+    done = "done"            # concluido com sucesso
+    failed = "failed"        # erro durante processamento
+    cancelled = "cancelled"  # cancelado pelo usuario via DELETE/cancel
 
 
 # ============================================================
@@ -35,16 +28,24 @@ class JobStatus(str, Enum):
 # ============================================================
 
 class JobParams(BaseModel):
-    """Parametros pro pipeline (espelha args do run_pipeline)."""
+    """
+    Parametros pro pipeline (espelha args do run_pipeline).
+
+    Os 4 parametros dependentes de template (min/max_clip_seconds,
+    max_clips, min_score) sao Optional - quando None, o analyzer usa
+    os smart defaults do template escolhido (ex: gameplay_humor usa
+    15-60s/8 clips, evangelical_preaching usa 45-90s/5 clips).
+    """
     whisper_model: str = "base"
     language: Optional[str] = None
     refine: bool = True
     refine_context: str = "pregacao evangelica em portugues do Brasil"
     template: str = "evangelical_preaching"
-    min_clip_seconds: float = 45
-    max_clip_seconds: float = 90
-    max_clips: int = 5
-    min_score: float = 7.0
+    # Optional: None = usa default do template
+    min_clip_seconds: Optional[float] = None
+    max_clip_seconds: Optional[float] = None
+    max_clips: Optional[int] = None
+    min_score: Optional[float] = None
     font_size: int = 90
     words_per_chunk: int = 3
     fade_out_seconds: float = 3.0
@@ -54,7 +55,7 @@ class Job(BaseModel):
     """
     Estado completo de um job de processamento.
 
-    Persistido em data/jobs/{id}.json. Cada update sobrescreve o arquivo.
+    Persistido em data/jobs/{id}.json.
     """
     id: str = Field(..., description="UUID unico do job")
     status: JobStatus = JobStatus.queued
@@ -63,9 +64,9 @@ class Job(BaseModel):
     params: JobParams = Field(default_factory=JobParams)
 
     # Progresso
-    stage: Optional[str] = Field(None, description="Etapa atual (download/transcribe/...)")
-    message: Optional[str] = Field(None, description="Mensagem humana do estado atual")
-    percent: int = Field(0, ge=0, le=100, description="Progresso aproximado 0-100")
+    stage: Optional[str] = Field(None, description="Etapa atual")
+    message: Optional[str] = Field(None, description="Mensagem humana do estado")
+    percent: int = Field(0, ge=0, le=100, description="Progresso 0-100")
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -74,8 +75,10 @@ class Job(BaseModel):
 
     # Resultado
     clips: list[str] = Field(default_factory=list,
-                              description="Nomes de arquivo dos MP4s finais (relativos a data/outputs/)")
-    error: Optional[str] = Field(None, description="Stack trace / mensagem de erro se falhou")
+                              description="Nomes dos MP4s finais (relativos a data/outputs/)")
+    error: Optional[str] = Field(None, description="Stack trace / mensagem de erro")
+    cache_key: Optional[str] = Field(None,
+                                     description="Stem do video original (pra cleanup em data/temp/ e data/outputs/)")
 
 
 # ============================================================
@@ -96,7 +99,7 @@ class ProgressMessage(BaseModel):
     """
     Mensagem enviada via WebSocket durante o processamento.
 
-    O frontend deve esperar esse formato em cada mensagem JSON do WS.
+    O frontend deve esperar esse formato em cada mensagem JSON.
     """
     job_id: str
     status: JobStatus

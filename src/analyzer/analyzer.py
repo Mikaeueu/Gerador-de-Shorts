@@ -28,7 +28,8 @@ import logging
 import os
 from pathlib import Path
 
-from src.analyzer.prompts import TEMPLATES
+from src.analyzer.llm_providers import analyze_with_fallback
+from src.analyzer.prompts import TEMPLATES, get_template_defaults
 from src.analyzer.schemas import ViralAnalysis, ViralClip
 from src.common.paths import TEMP_DIR, ensure_dirs
 from src.transcriber import Transcript
@@ -107,10 +108,10 @@ def analyze(
     *,
     template: str = "evangelical_preaching",
     model: str | None = None,
-    min_clip_seconds: float = 45,
-    max_clip_seconds: float = 90,
-    max_clips: int = 5,
-    min_score: float = 7.0,
+    min_clip_seconds: float | None = None,
+    max_clip_seconds: float | None = None,
+    max_clips: int | None = None,
+    min_score: float | None = None,
     cache_key: str | None = None,
     use_cache: bool = True,
 ) -> ViralAnalysis:
@@ -163,6 +164,22 @@ def analyze(
     if template not in TEMPLATES:
         raise ValueError(f"Template desconhecido: {template}. Disponiveis: {list(TEMPLATES)}")
 
+    # Resolve smart defaults do template pra parametros nao passados.
+    # Isso garante que escolher template gameplay_humor SEM explicitar
+    # min/max/max_clips usa os valores ideais (15-60s, 8 clips) ao inves
+    # dos defaults genericos (45-90s, 5 clips).
+    defaults = get_template_defaults(template)
+    if min_clip_seconds is None:
+        min_clip_seconds = defaults["min_clip_seconds"]
+    if max_clip_seconds is None:
+        max_clip_seconds = defaults["max_clip_seconds"]
+    if max_clips is None:
+        max_clips = defaults["max_clips"]
+    if min_score is None:
+        min_score = defaults["min_score"]
+    logger.info("Defaults resolvidos pro template '%s': %d-%ds, max %d clips, score >= %.1f",
+                template, min_clip_seconds, max_clip_seconds, max_clips, min_score)
+
     # ----- Cache hit? Retorna sem chamar Gemini. -----
     cache_path: Path | None = None
     if cache_key:
@@ -182,31 +199,16 @@ def analyze(
         min_score=min_score,
     )
 
-    # ----- Chama Gemini com saida estruturada -----
-    logger.info("Chamando %s (template=%s)...", model, template)
-    client = _get_gemini_client()
-
-    # MAGICA do response_schema:
-    #   Passamos list[ViralClip] e o SDK traduz pra um JSON Schema
-    #   forcando o Gemini a respeitar. NUNCA recebemos texto solto.
-    # temperature=0.3:
-    #   Baixa = saida mais deterministica. Pra curadoria queremos
-    #   consistencia, nao criatividade.
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": list[ViralClip],
-            "temperature": 0.3,
-        },
-    )
-
-    clips_raw = response.parsed or []
-    clips: list[ViralClip] = [
-        c if isinstance(c, ViralClip) else ViralClip.model_validate(c)
-        for c in clips_raw
-    ]
+    # ----- Cadeia de LLMs com fallback automatico -----
+    # Tenta Gemini -> Groq -> OpenAI -> Ollama na ordem.
+    # Se o Gemini bater quota diaria (1500/dia), automaticamente passa
+    # pro proximo provider sem o user precisar fazer nada.
+    # Cada provider so e tentado se tiver credencial configurada (env var).
+    logger.info("Analisando viral (template=%s) com cadeia de fallback...", template)
+    clips, provider_used = analyze_with_fallback(prompt)
+    # Atualiza o nome do modelo pra refletir o provider real usado
+    # (vai aparecer no .viral.json - util pra debug)
+    model = f"{provider_used}/{model}" if provider_used != "gemini" else model
 
     # ----- Pos-processamento defensivo -----
     # Mesmo com schema forcado, LLM pode retornar valores absurdos.

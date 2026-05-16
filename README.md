@@ -36,7 +36,7 @@ O projeto é construído etapa por etapa, cada módulo testável de forma isolad
 - [x] **Etapa 5** — Legendas estilo Opus (palavra-por-palavra, ASS + FFmpeg)
 - [x] **Etapa 6** — Pipeline orquestrador end-to-end (1 comando faz tudo)
 - [x] **Etapa 7** — API FastAPI com WebSocket pra progresso em tempo real
-- [ ] **Etapa 8** — Frontend simples (HTML → React no futuro)
+- [x] **Etapa 8** — Frontend React (Vite + Tailwind v4, estilo Linear/Vercel)
 
 ## Estrutura do projeto
 
@@ -188,6 +188,24 @@ python -m src.api.cli --reload
 - `WS /jobs/{id}/ws` — stream de progresso em tempo real
 - `GET /jobs/{id}/clips` — lista os MP4s finais
 - `GET /jobs/{id}/clips/{n}` — baixa um clip específico
+
+### Frontend Web (Etapa 8)
+
+Interface web React com dark mode estilo Linear/Vercel.
+
+```bash
+# Em UM terminal: subir a API
+python -m src.api.cli
+
+# Em OUTRO terminal: subir o frontend
+cd frontend
+npm install
+npm run dev
+
+# Abrir http://localhost:5173 no browser
+```
+
+O Vite faz proxy automático pra API local — sem CORS dor de cabeça. Documentação completa em [frontend/README.md](frontend/README.md).
 
 ### Pipeline em 1 comando (Etapa 6)
 

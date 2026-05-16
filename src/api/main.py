@@ -30,10 +30,11 @@ from typing import Optional
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pathlib import Path
 
-from src.api.jobs import create_job, get_job, list_jobs
+from src.api.jobs import create_job, delete_job, get_job, list_jobs
 from src.api.schemas import Job, JobCreateRequestUrl, JobParams, JobStatus
-from src.api.worker import broker, schedule_job
+from src.api.worker import broker, request_cancel, schedule_job
 from src.common.paths import INPUTS_DIR, OUTPUTS_DIR, ensure_dirs
 from src.downloader import is_url
 
@@ -168,6 +169,60 @@ async def get_job_endpoint(job_id: str) -> Job:
     return job
 
 
+@app.delete("/jobs/{job_id}", status_code=204)
+async def delete_job_endpoint(job_id: str) -> None:
+    """
+    Deleta um job e TODOS os arquivos relacionados.
+
+    Apaga:
+        - JSON do job em data/jobs/<id>.json
+        - Subpasta de clips em data/outputs/<nome_video>/
+        - Caches em data/temp/<cache_key>.*
+
+    Se o job estiver em execucao, primeiro sinaliza pra cancelar
+    (o worker checa entre etapas e aborta). Em seguida apaga.
+
+    Responde 204 (no content) em sucesso, 404 se job nao existe.
+    """
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"Job nao encontrado: {job_id}")
+
+    # Se estiver rodando, sinaliza cancelamento antes de deletar
+    # pra liberar recursos (FFmpeg, modelos, etc.).
+    if job.status == JobStatus.running:
+        request_cancel(job_id)
+
+    ok = delete_job(job_id)
+    if not ok:
+        raise HTTPException(500, f"Falha ao deletar job {job_id}")
+    return None  # 204 no content
+
+
+@app.post("/jobs/{job_id}/cancel", status_code=200)
+async def cancel_job_endpoint(job_id: str) -> dict:
+    """
+    Solicita cancelamento de um job em execucao.
+
+    Sinaliza pro worker que ele deve parar na proxima checagem entre etapas.
+    O job vira status "cancelled" (nao "failed") e mantem os arquivos parciais.
+
+    Args:
+        job_id: ID do job a cancelar.
+
+    Returns:
+        Dict com {"cancelled": bool} - True se foi sinalizado, False se
+        o job ja terminou ou nao existe.
+    """
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"Job nao encontrado: {job_id}")
+    if job.status != JobStatus.running:
+        return {"cancelled": False, "reason": f"job nao esta rodando (status={job.status})"}
+    signaled = request_cancel(job_id)
+    return {"cancelled": signaled}
+
+
 # ============================================================
 # WebSocket pra progresso em tempo real
 # ============================================================
@@ -240,14 +295,22 @@ async def download_clip(job_id: str, clip_index: int) -> FileResponse:
         raise HTTPException(404, f"clip_index fora do range (1-{len(job.clips)})")
 
     filename = job.clips[clip_index - 1]
+    # job.clips agora contem path RELATIVO com subpasta:
+    #   "Nao Ande Ansioso [X18HYF5HTAU]/O erro que TODO cristao comete.mp4"
+    # OUTPUTS_DIR / filename resolve corretamente porque Path arithmetic
+    # entende o "/" como separador de subpasta.
     path = OUTPUTS_DIR / filename
     if not path.exists():
         raise HTTPException(404, f"Arquivo nao encontrado no disco: {filename}")
 
+    # Pro download, queremos so o NOME DO CLIP (sem a subpasta) pq o browser
+    # usaria o filename completo como caminho, criando estrutura indesejada.
+    download_name = Path(filename).name
+
     return FileResponse(
         str(path),
         media_type="video/mp4",
-        filename=filename,
+        filename=download_name,
     )
 
 

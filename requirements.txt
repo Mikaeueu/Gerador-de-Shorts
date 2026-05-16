@@ -12,6 +12,8 @@ faster-whisper>=1.0.3
 
 # ---- Etapa 3: Análise viral via LLM ----
 google-genai>=0.7.0      # SDK novo unificado do Google (substitui google-generativeai)
+groq>=0.11.0             # Llama 3.3 70B — usado pelo refiner (Etapa 2.5) + fallback chain
+openai>=1.50.0           # GPT-4o-mini (fallback opcional — só usado se Groq+Gemini falharem)
 python-dotenv>=1.0.0     # carrega .env
 pydantic>=2.9.0          # schema das respostas estruturadas
 

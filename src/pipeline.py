@@ -1,15 +1,10 @@
 """
 Etapa 6 - Pipeline orquestrador END-TO-END.
 
-Roda TODO o pipeline com UM unico comando, encadeando as 6 etapas:
-    1. Downloader   (yt-dlp)
-    2. Transcriber  (faster-whisper)
-    2.5 Refiner     (Gemini revisa palavras)
-    3. Analyzer     (Gemini detecta clips virais)
-    4. Cropper      (MediaPipe/Haar + FFmpeg)
-    5. Captioner    (ASS + FFmpeg + fade out + cleanup)
-
 Caches em data/temp/ sao reaproveitados em re-runs.
+Smart defaults por template: parametros de duracao/quantidade None
+sao resolvidos automaticamente conforme template (ver
+src/analyzer/prompts.py::TEMPLATE_DEFAULTS).
 """
 from __future__ import annotations
 
@@ -29,10 +24,6 @@ from src.transcriber import refine_transcript, transcribe
 
 logger = logging.getLogger(__name__)
 
-# Tipo do callback de progresso. Recebe:
-#   stage:   nome da etapa ("download", "transcribe", "refine", etc.)
-#   message: texto humano do que esta acontecendo
-#   percent: 0-100, progresso geral aproximado
 ProgressCallback = Callable[[str, str, int], None]
 
 
@@ -52,10 +43,10 @@ def run_pipeline(
     refine: bool = True,
     refine_context: str = "pregacao evangelica em portugues do Brasil",
     template: str = "evangelical_preaching",
-    min_clip_seconds: float = 45,
-    max_clip_seconds: float = 90,
-    max_clips: int = 5,
-    min_score: float = 7.0,
+    min_clip_seconds: float | None = None,
+    max_clip_seconds: float | None = None,
+    max_clips: int | None = None,
+    min_score: float | None = None,
     font_size: int = 90,
     words_per_chunk: int = 3,
     fade_out_seconds: float = 3.0,
@@ -64,35 +55,20 @@ def run_pipeline(
     """
     Roda o pipeline completo: source -> MP4s finais com legendas.
 
-    Args:
-        source:           URL ou caminho local.
-        whisper_model:    "base"/"small"/etc. Default: base.
-        language:         Codigo ISO ("pt", "en"). None = auto-detect.
-        refine:           Refinar transcricao via Gemini. Default True.
-        refine_context:   Contexto pra orientar o refinamento.
-        template:         Template do analyzer.
-        min/max_clip_seconds: Faixa de duracao dos clips.
-        max_clips:        Maximo de clips. Default 5.
-        min_score:        Score minimo. Default 7.0.
-        font_size:        Tamanho da fonte das legendas. Default 90.
-        words_per_chunk:  Palavras por chunk de legenda. Default 3.
-        fade_out_seconds: Duracao do fade out. Default 3.0.
-        on_progress:      Callback opcional pra reportar progresso
-                          (usado pela API com WebSocket).
-
-    Returns:
-        Lista de Paths dos MP4s finais.
+    Smart defaults por template:
+        Quando min/max_clip_seconds, max_clips ou min_score sao None,
+        o analyzer aplica os defaults do template escolhido. Pregacao
+        usa 45-90s/5 clips, gameplay_humor usa 15-60s/8 clips.
     """
     total_steps = 6 if refine else 5
     started_at = time.time()
 
     def progress(stage: str, msg: str, percent: int) -> None:
-        """Reporta progresso pra callback (se houver)."""
         if on_progress:
             try:
                 on_progress(stage, msg, percent)
             except Exception:
-                pass  # nunca quebrar pipeline por erro do callback
+                pass
 
     # ----- Etapa 1: Download/ingest -----
     _section(1, total_steps, "Download / ingest do video")
@@ -155,11 +131,20 @@ def run_pipeline(
     # ----- Etapa 4: Crop vertical -----
     _section(4 + step_offset, total_steps, "Reenquadramento vertical (face tracking)")
     progress("crop", "Reenquadrando clips verticais...", 75)
+
+    # Sub-progresso entre clips: 75% → 88% distribuido conforme idx/total.
+    # Sem isso, o percent fica congelado em 75% pelo tempo todo do crop
+    # (que pode levar varios minutos), prejudicando o calculo de ETA.
+    def _crop_subprogress(idx: int, total_clips: int) -> None:
+        sub = 75 + int((idx - 1) / total_clips * 13)  # 75..88
+        progress("crop", f"Reenquadrando clip {idx}/{total_clips}...", sub)
+
     cropped = crop_all_clips(
         video_source.path,
         analysis,
         cache_key_base=cache_key,
         use_cache_plan=False,
+        on_clip_progress=_crop_subprogress,
     )
     print(f"  ok  {len(cropped)} clips verticais gerados")
     progress("crop", f"OK: {len(cropped)} clips verticais", 88)
@@ -167,12 +152,19 @@ def run_pipeline(
     # ----- Etapa 5: Legendas + fade -----
     _section(5 + step_offset, total_steps, "Legendas estilo Opus + fade out")
     progress("caption", "Queimando legendas + fade...", 90)
+
+    # Sub-progresso entre clips: 90% → 99%.
+    def _caption_subprogress(idx: int, total_clips: int) -> None:
+        sub = 90 + int((idx - 1) / total_clips * 9)  # 90..99
+        progress("caption", f"Legendando clip {idx}/{total_clips}...", sub)
+
     final = caption_all_clips(
         transcript, analysis,
         cache_key_base=cache_key,
         font_size=font_size,
         max_words_per_chunk=words_per_chunk,
         fade_out_seconds=fade_out_seconds,
+        on_clip_progress=_caption_subprogress,
     )
     progress("caption", f"OK: {len(final)} clips finais", 100)
 
@@ -209,14 +201,15 @@ def main() -> int:
     parser.add_argument("--template", default="evangelical_preaching",
                         choices=list(TEMPLATES),
                         help="Template do analyzer")
-    parser.add_argument("--min-seconds", type=float, default=45,
-                        help="Duracao minima de clip (default: 45)")
-    parser.add_argument("--max-seconds", type=float, default=90,
-                        help="Duracao maxima de clip (default: 90)")
-    parser.add_argument("--max-clips", type=int, default=5,
-                        help="Maximo de clips (default: 5)")
-    parser.add_argument("--min-score", type=float, default=7.0,
-                        help="Score minimo 0-10 (default: 7.0)")
+    # Defaults None = usa smart defaults do template (TEMPLATE_DEFAULTS).
+    parser.add_argument("--min-seconds", type=float, default=None,
+                        help="Duracao minima de clip (default: do template)")
+    parser.add_argument("--max-seconds", type=float, default=None,
+                        help="Duracao maxima de clip (default: do template)")
+    parser.add_argument("--max-clips", type=int, default=None,
+                        help="Maximo de clips (default: do template)")
+    parser.add_argument("--min-score", type=float, default=None,
+                        help="Score minimo 0-10 (default: do template)")
     parser.add_argument("--font-size", type=int, default=90,
                         help="Tamanho da fonte (default: 90)")
     parser.add_argument("--words", type=int, default=3,

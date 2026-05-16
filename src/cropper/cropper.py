@@ -26,7 +26,7 @@ import tempfile
 from pathlib import Path
 
 from src.analyzer.schemas import ViralAnalysis, ViralClip
-from src.common.paths import OUTPUTS_DIR, TEMP_DIR, ensure_dirs
+from src.common.paths import OUTPUTS_DIR, TEMP_DIR, ensure_dirs, get_video_output_dir
 from src.cropper.face_tracker import detect_face_trajectory
 from src.cropper.schemas import CropKeyframe, CropPlan
 from src.cropper.smoothing import interpolate_x_at_time, smooth_trajectory
@@ -291,6 +291,7 @@ def crop_all_clips(
     *,
     cache_key_base: str,
     use_cache_plan: bool = False,
+    on_clip_progress: "logging.Callable[[int, int], None] | None" = None,
 ) -> list[Path]:
     """
     Processa TODOS os clips de uma analise e exporta em data/outputs/.
@@ -308,8 +309,17 @@ def crop_all_clips(
     """
     ensure_dirs()
     outputs: list[Path] = []
+    total = len(analysis.clips)
 
     for idx, clip in enumerate(analysis.clips, 1):
+        # Notifica progresso sub-etapa antes de processar cada clip.
+        # Permite ETA mais preciso no frontend mesmo quando o crop demora.
+        if on_clip_progress:
+            try:
+                on_clip_progress(idx, total)
+            except Exception:
+                pass
+
         cache_key = f"{cache_key_base}_clip_{idx}"
 
         cache_file = TEMP_DIR / f"{cache_key}.crop.json"
@@ -320,7 +330,10 @@ def crop_all_clips(
             plan = build_crop_plan(video_path, clip)
             save_crop_plan(plan, cache_key)
 
-        out_path = OUTPUTS_DIR / f"{cache_key}.mp4"
+        # Cada video tem sua propria subpasta em data/outputs/<nome_video>/
+        # pra organizacao - shorts de videos diferentes nao se misturam.
+        video_dir = get_video_output_dir(cache_key_base)
+        out_path = video_dir / f"{cache_key}.mp4"
         apply_crop_with_ffmpeg(video_path, plan, out_path)
         outputs.append(out_path)
 
